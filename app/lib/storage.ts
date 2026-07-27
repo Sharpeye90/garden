@@ -1,8 +1,25 @@
-import type { GardenState } from "../types";
+import { INITIAL_PLANTINGS } from "../data";
+import type { GardenState, Planting } from "../types";
 
 const DB_NAME = "garden-rhythm";
 const STORE_NAME = "garden-state";
 const STATE_KEY = "primary";
+
+function normalizeState(saved: GardenState): GardenState {
+  const legacy = saved as GardenState & { plantings?: Planting[] };
+  if (Array.isArray(legacy.plantings)) return legacy;
+
+  const plantIds = new Set(legacy.plants.map((plant) => plant.id));
+  const objectIds = new Set(legacy.planObjects.map((object) => object.id));
+  return {
+    ...legacy,
+    plantings: INITIAL_PLANTINGS.filter(
+      (planting) =>
+        plantIds.has(planting.plantId) &&
+        (!planting.planObjectId || objectIds.has(planting.planObjectId)),
+    ),
+  };
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -24,7 +41,10 @@ export async function readLocalState(): Promise<GardenState | null> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const request = transaction.objectStore(STORE_NAME).get(STATE_KEY);
-    request.onsuccess = () => resolve((request.result as GardenState) ?? null);
+    request.onsuccess = () => {
+      const saved = request.result as GardenState | undefined;
+      resolve(saved ? normalizeState(saved) : null);
+    };
     request.onerror = () => reject(request.error);
     transaction.oncomplete = () => database.close();
   });

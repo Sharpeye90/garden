@@ -15,6 +15,8 @@ export type GardenTask = {
   completedItems: number;
   totalItems: number;
   ruleId: string;
+  plantId?: string;
+  plantingId?: string;
 };
 
 export type PlanObjectType =
@@ -60,12 +62,28 @@ export type Plant = {
   stage: string;
 };
 
+export type PlantingMode = "point" | "group" | "row" | "area";
+
+export type Planting = {
+  id: string;
+  plantId: string;
+  planObjectId: string | null;
+  mode: PlantingMode;
+  x: number;
+  y: number;
+  quantity: number;
+  season: "permanent" | "2026" | "2027";
+  plantedAt?: string;
+};
+
 export type JournalEntry = {
   id: string;
   date: string;
   title: string;
   note: string;
   zone: string;
+  plantId?: string;
+  plantingId?: string;
 };
 
 export type GardenState = {
@@ -73,6 +91,7 @@ export type GardenState = {
   tasks: GardenTask[];
   planObjects: PlanObject[];
   plants: Plant[];
+  plantings: Planting[];
   journal: JournalEntry[];
   lastAnalyzedAt: string;
 };

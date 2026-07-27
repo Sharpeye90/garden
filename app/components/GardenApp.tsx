@@ -11,6 +11,14 @@ import {
 } from "react";
 import { CATALOG, INITIAL_STATE, MONTHS, PLAN_COLORS } from "../data";
 import { completeTask, partiallyCompleteTask, updatePlanObject } from "../lib/domain";
+import {
+  createCareTask,
+  findPlacementTarget,
+  placementHintForPlant,
+  plantingModeForPlant,
+  requiresPlanObject,
+  zoneForPlacement,
+} from "../lib/plantings";
 import { readLocalState, syncRemoteState, writeLocalState } from "../lib/storage";
 import type {
   GardenState,
@@ -18,6 +26,7 @@ import type {
   PlanObject,
   PlanObjectType,
   Plant,
+  Planting,
   PlantKind,
   ViewId,
 } from "../types";
@@ -62,6 +71,29 @@ const WEATHER_FALLBACK = {
   description: "Переменная облачность",
 };
 
+function plantCountLabel(quantity: number): string {
+  const remainder100 = quantity % 100;
+  const remainder10 = quantity % 10;
+  if (remainder100 >= 11 && remainder100 <= 14) return `${quantity} растений`;
+  if (remainder10 === 1) return `${quantity} растение`;
+  if (remainder10 >= 2 && remainder10 <= 4) return `${quantity} растения`;
+  return `${quantity} растений`;
+}
+
+function russianCount(
+  quantity: number,
+  one: string,
+  few: string,
+  many: string,
+): string {
+  const remainder100 = quantity % 100;
+  const remainder10 = quantity % 10;
+  if (remainder100 >= 11 && remainder100 <= 14) return `${quantity} ${many}`;
+  if (remainder10 === 1) return `${quantity} ${one}`;
+  if (remainder10 >= 2 && remainder10 <= 4) return `${quantity} ${few}`;
+  return `${quantity} ${many}`;
+}
+
 function Logo() {
   return (
     <div className="brand-mark" aria-hidden="true">
@@ -95,6 +127,8 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     INITIAL_STATE.tasks[0]?.id ?? null,
   );
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [selectedPlantingId, setSelectedPlantingId] = useState<string | null>(null);
+  const [pendingPlantId, setPendingPlantId] = useState<string | null>(null);
   const [planHistory, setPlanHistory] = useState<PlanObject[][]>([]);
   const [zoom, setZoom] = useState(1);
   const [season, setSeason] = useState<"all" | "permanent" | "2026" | "2027">(
@@ -182,6 +216,10 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     return () => clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [view]);
+
   const updateState = useCallback((updater: (current: GardenState) => GardenState) => {
     setState((current) => {
       const next = updater(current);
@@ -200,29 +238,35 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     taskId: string,
     action: "done" | "partial" | "skip" | "postpone",
   ) => {
-    updateState((current) => ({
-      ...current,
-      tasks: current.tasks.map((task) => {
-        if (task.id !== taskId) return task;
-        if (action === "done") return completeTask(task);
-        if (action === "partial") return partiallyCompleteTask(task);
-        if (action === "skip") return { ...task, status: "skipped" };
-        return { ...task, window: "завтра · пересчитано", priority: "low" };
-      }),
-      journal:
-        action === "done"
+    updateState((current) => {
+      const sourceTask = current.tasks.find((task) => task.id === taskId);
+      const shouldJournal =
+        action === "done" && sourceTask && sourceTask.status !== "done";
+      return {
+        ...current,
+        tasks: current.tasks.map((task) => {
+          if (task.id !== taskId) return task;
+          if (action === "done") return completeTask(task);
+          if (action === "partial") return partiallyCompleteTask(task);
+          if (action === "skip") return { ...task, status: "skipped" };
+          return { ...task, window: "завтра · пересчитано", priority: "low" };
+        }),
+        journal: shouldJournal
           ? [
               {
                 id: crypto.randomUUID(),
                 date: "сегодня",
-                title: state.tasks.find((task) => task.id === taskId)?.title ?? "Работа выполнена",
-                note: "Отмечено из списка дел.",
-                zone: state.tasks.find((task) => task.id === taskId)?.zone ?? "Участок",
+                title: sourceTask.title,
+                note: "Выполнено из списка дел — связь с посадкой сохранена.",
+                zone: sourceTask.zone,
+                plantId: sourceTask.plantId,
+                plantingId: sourceTask.plantingId,
               },
               ...current.journal,
             ]
           : current.journal,
-    }));
+      };
+    });
     setToast(
       action === "done"
         ? "Готово — запись добавлена в журнал"
@@ -240,10 +284,29 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
 
   const changePlanObject = (changed: PlanObject) => {
     pushPlanHistory();
-    updateState((current) => ({
-      ...current,
-      planObjects: updatePlanObject(current.planObjects, changed),
-    }));
+    updateState((current) => {
+      const linkedPlantings = current.plantings.filter(
+        (planting) => planting.planObjectId === changed.id,
+      );
+      const linkedPlantIds = new Set(
+        linkedPlantings.map((planting) => planting.plantId),
+      );
+      const linkedPlantingIds = new Set(
+        linkedPlantings.map((planting) => planting.id),
+      );
+      return {
+        ...current,
+        planObjects: updatePlanObject(current.planObjects, changed),
+        plants: current.plants.map((plant) =>
+          linkedPlantIds.has(plant.id) ? { ...plant, zone: changed.label } : plant,
+        ),
+        tasks: current.tasks.map((task) =>
+          task.plantingId && linkedPlantingIds.has(task.plantingId)
+            ? { ...task, zone: changed.label }
+            : task,
+        ),
+      };
+    });
   };
 
   const addPlanObject = (type: PlanObjectType) => {
@@ -280,8 +343,18 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
   const selectedObject = state.planObjects.find(
     (object) => object.id === selectedObjectId,
   );
+  const selectedPlanting = state.plantings.find(
+    (planting) => planting.id === selectedPlantingId,
+  );
+  const selectedPlant = state.plants.find(
+    (plant) => plant.id === selectedPlanting?.plantId,
+  );
+  const pendingPlant = state.plants.find((plant) => plant.id === pendingPlantId) ?? null;
   const filteredPlanObjects = state.planObjects.filter(
     (object) => season === "all" || object.season === season,
+  );
+  const filteredPlantings = state.plantings.filter(
+    (planting) => season === "all" || planting.season === season,
   );
 
   const filteredCatalog = useMemo(() => {
@@ -295,24 +368,162 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     );
   }, [plantFilter, plantQuery]);
 
+  const startPlacement = (plantId: string) => {
+    const plant = state.plants.find((item) => item.id === plantId);
+    if (!plant) return;
+    setPendingPlantId(plantId);
+    setSelectedObjectId(null);
+    setSelectedPlantingId(null);
+    setSeason("all");
+    setView("plan");
+    setToast(`${plant.name}: выберите место на плане`);
+  };
+
   const addPlant = (plant: Plant) => {
-    if (state.plants.some((item) => item.name === plant.name)) {
-      setToast("Это растение уже есть на участке");
-      return;
-    }
+    const plantId = crypto.randomUUID();
     updateState((current) => ({
       ...current,
       plants: [
         ...current.plants,
         {
           ...plant,
-          id: crypto.randomUUID(),
+          id: plantId,
           zone: "Нужно разместить",
           countLabel: "1 растение",
         },
       ],
     }));
-    setToast(`${plant.name} добавлено — выберите место на плане`);
+    setPendingPlantId(plantId);
+    setSelectedObjectId(null);
+    setSelectedPlantingId(null);
+    setSeason("all");
+    setView("plan");
+    setToast(`${plant.name} добавлено — укажите место на плане`);
+  };
+
+  const placePendingPlant = (x: number, y: number) => {
+    if (!pendingPlant) return;
+    const boundedX = Math.max(52, Math.min(732, Math.round(x)));
+    const boundedY = Math.max(46, Math.min(496, Math.round(y)));
+    const target = findPlacementTarget(
+      state.planObjects,
+      pendingPlant,
+      boundedX,
+      boundedY,
+    );
+    if (requiresPlanObject(pendingPlant) && !target) {
+      setToast(placementHintForPlant(pendingPlant));
+      return;
+    }
+
+    const planting: Planting = {
+      id: crypto.randomUUID(),
+      plantId: pendingPlant.id,
+      planObjectId: target?.id ?? null,
+      mode: plantingModeForPlant(pendingPlant),
+      x: boundedX,
+      y: boundedY,
+      quantity: 1,
+      season: pendingPlant.kind === "Овощи" ? "2026" : "permanent",
+    };
+    const zone = zoneForPlacement(pendingPlant, target);
+    const task = createCareTask(pendingPlant, planting, zone);
+
+    updateState((current) => ({
+      ...current,
+      plants: current.plants.map((plant) =>
+        plant.id === pendingPlant.id
+          ? { ...plant, zone, countLabel: plantCountLabel(planting.quantity) }
+          : plant,
+      ),
+      plantings: [...current.plantings, planting],
+      tasks: [task, ...current.tasks],
+    }));
+    setPendingPlantId(null);
+    setSelectedObjectId(null);
+    setSelectedPlantingId(planting.id);
+    setSelectedTask(task.id);
+    setToast(`${pendingPlant.name} размещено — задача ухода уже создана`);
+  };
+
+  const movePlanting = (plantingId: string, x: number, y: number) => {
+    const planting = state.plantings.find((item) => item.id === plantingId);
+    const plant = state.plants.find((item) => item.id === planting?.plantId);
+    if (!planting || !plant) return;
+    const target = findPlacementTarget(state.planObjects, plant, x, y);
+    if (requiresPlanObject(plant) && !target) {
+      setToast(placementHintForPlant(plant));
+      return;
+    }
+    const zone = zoneForPlacement(plant, target);
+    updateState((current) => ({
+      ...current,
+      plantings: current.plantings.map((item) =>
+        item.id === plantingId
+          ? { ...item, x, y, planObjectId: target?.id ?? null }
+          : item,
+      ),
+      plants: current.plants.map((item) =>
+        item.id === plant.id ? { ...item, zone } : item,
+      ),
+      tasks: current.tasks.map((task) =>
+        task.plantingId === plantingId ? { ...task, zone } : task,
+      ),
+    }));
+    setToast(`${plant.name} перемещено`);
+  };
+
+  const updatePlantingQuantity = (plantingId: string, quantity: number) => {
+    const safeQuantity = Math.max(1, Math.min(999, Math.round(quantity) || 1));
+    const planting = state.plantings.find((item) => item.id === plantingId);
+    if (!planting) return;
+    updateState((current) => ({
+      ...current,
+      plantings: current.plantings.map((item) =>
+        item.id === plantingId ? { ...item, quantity: safeQuantity } : item,
+      ),
+      plants: current.plants.map((plant) =>
+        plant.id === planting.plantId
+          ? { ...plant, countLabel: plantCountLabel(safeQuantity) }
+          : plant,
+      ),
+      tasks: current.tasks.map((task) =>
+        task.plantingId === plantingId
+          ? { ...task, totalItems: safeQuantity }
+          : task,
+      ),
+    }));
+  };
+
+  const removePlanting = (plantingId: string) => {
+    const planting = state.plantings.find((item) => item.id === plantingId);
+    if (!planting) return;
+    updateState((current) => {
+      const remaining = current.plantings.filter((item) => item.id !== plantingId);
+      const fallback = remaining.find((item) => item.plantId === planting.plantId);
+      const fallbackObject = current.planObjects.find(
+        (object) => object.id === fallback?.planObjectId,
+      );
+      return {
+        ...current,
+        plantings: remaining,
+        plants: current.plants.map((plant) =>
+          plant.id === planting.plantId
+            ? {
+                ...plant,
+                zone: fallback
+                  ? fallbackObject?.label ?? "Плодовый сад"
+                  : "Нужно разместить",
+              }
+            : plant,
+        ),
+        tasks: current.tasks.filter(
+          (task) => task.plantingId !== plantingId || task.status === "done",
+        ),
+      };
+    });
+    setSelectedPlantingId(null);
+    setToast("Посадка убрана с плана; растение осталось в списке");
   };
 
   const addJournalEntry = (event: FormEvent) => {
@@ -334,6 +545,71 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     }));
     setJournalDraft("");
     setToast("Наблюдение сохранено");
+  };
+
+  const recordBloomObservation = (flowering: boolean) => {
+    const plant = state.plants.find((item) => item.name.includes("Гортензия"));
+    if (!plant) return;
+    const planting = state.plantings.find((item) => item.plantId === plant.id);
+    const title = flowering
+      ? `${plant.name}: цветение подтверждено`
+      : `${plant.name}: пока не цветёт`;
+    updateState((current) => ({
+      ...current,
+      plants: current.plants.map((item) =>
+        item.id === plant.id
+          ? { ...item, stage: flowering ? "Цветение" : "Бутонизация" }
+          : item,
+      ),
+      journal: [
+        {
+          id: crypto.randomUUID(),
+          date: "сегодня",
+          title,
+          note: "Наблюдение учтено в календаре цветения.",
+          zone: plant.zone,
+          plantId: plant.id,
+          plantingId: planting?.id,
+        },
+        ...current.journal,
+      ],
+    }));
+    setToast("Наблюдение сохранено и связано с растением");
+  };
+
+  const askAssistant = async (question: string) => {
+    if (isPreview) {
+      setToast("Советник появится в закрытом пилоте; календарь работает без него");
+      return;
+    }
+    try {
+      const response = await fetch("/api/v1/assistant/questions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      setToast(
+        response.ok
+          ? "Вопрос поставлен в очередь — ответ придёт уведомлением"
+          : "Советник сейчас недоступен; попробуйте позже",
+      );
+    } catch {
+      setToast("Советник сейчас недоступен; базовый календарь продолжает работать");
+    }
+  };
+
+  const resetDemo = () => {
+    if (!window.confirm("Вернуть исходный пример сада и удалить изменения в этом браузере?")) {
+      return;
+    }
+    setState({ ...INITIAL_STATE, revision: state.revision + 1 });
+    setSelectedTask(INITIAL_STATE.tasks[0]?.id ?? null);
+    setSelectedObjectId(null);
+    setSelectedPlantingId(null);
+    setPendingPlantId(null);
+    setPlanHistory([]);
+    setView("today");
+    setToast("Демосад возвращён в исходное состояние");
   };
 
   return (
@@ -396,6 +672,11 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
             </span>
           </div>
           <div className="topbar-actions">
+            {isPreview && (
+              <button className="demo-reset" onClick={resetDemo}>
+                Сбросить демо
+              </button>
+            )}
             <span className={`sync-state ${syncStatus}`}>
               <i />
               {syncStatus === "saving"
@@ -424,12 +705,21 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
               weather={weather}
               progress={progress}
               tasks={visibleTasks}
+              plantingCount={state.plantings.length}
+              zoneCount={new Set(state.plantings.map((planting) => planting.planObjectId ?? "fruit-garden")).size}
               selectedTask={selectedTaskData ?? null}
               onSelectTask={setSelectedTask}
               onTaskAction={taskAction}
-              onOpenPlan={(zone) => {
-                const object = state.planObjects.find((item) => item.label === zone);
-                setSelectedObjectId(object?.id ?? null);
+              onOpenPlan={(task) => {
+                const planting = state.plantings.find(
+                  (item) => item.id === task.plantingId,
+                );
+                const object = state.planObjects.find(
+                  (item) => item.id === planting?.planObjectId || item.label === task.zone,
+                );
+                setPendingPlantId(null);
+                setSelectedPlantingId(planting?.id ?? null);
+                setSelectedObjectId(planting ? null : object?.id ?? null);
                 setView("plan");
               }}
               onOpenBloom={() => setView("bloom")}
@@ -439,19 +729,45 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
           {view === "plan" && (
             <PlanView
               objects={filteredPlanObjects}
+              plantings={filteredPlantings}
+              plants={state.plants}
               selectedObject={selectedObject ?? null}
               selectedObjectId={selectedObjectId}
+              selectedPlanting={selectedPlanting ?? null}
+              selectedPlant={selectedPlant ?? null}
+              pendingPlant={pendingPlant}
               season={season}
               zoom={zoom}
               canUndo={planHistory.length > 0}
               onSeason={setSeason}
               onZoom={setZoom}
               onUndo={undoPlan}
-              onSelect={setSelectedObjectId}
+              onSelect={(id) => {
+                setSelectedObjectId(id);
+                if (id) setSelectedPlantingId(null);
+              }}
+              onSelectPlanting={(id) => {
+                setSelectedPlantingId(id);
+                if (id) setSelectedObjectId(null);
+              }}
               onChange={changePlanObject}
+              onMovePlanting={movePlanting}
+              onPlace={placePendingPlant}
+              onCancelPlacement={() => setPendingPlantId(null)}
+              onUpdatePlantingQuantity={updatePlantingQuantity}
+              onRemovePlanting={removePlanting}
+              onOpenPlants={() => setView("plants")}
               onAdd={addPlanObject}
               onDelete={() => {
                 if (!selectedObjectId) return;
+                if (
+                  state.plantings.some(
+                    (planting) => planting.planObjectId === selectedObjectId,
+                  )
+                ) {
+                  setToast("Сначала переместите или уберите связанные посадки");
+                  return;
+                }
                 pushPlanHistory();
                 updateState((current) => ({
                   ...current,
@@ -468,16 +784,34 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
           {view === "plants" && (
             <PlantsView
               gardenPlants={state.plants}
+              plantings={state.plantings}
               catalog={filteredCatalog}
               query={plantQuery}
               filter={plantFilter}
               onQuery={setPlantQuery}
               onFilter={setPlantFilter}
               onAdd={addPlant}
+              onPlace={startPlacement}
+              onLocate={(plantId) => {
+                const planting = state.plantings.find(
+                  (item) => item.plantId === plantId,
+                );
+                if (!planting) {
+                  startPlacement(plantId);
+                  return;
+                }
+                setPendingPlantId(null);
+                setSelectedObjectId(null);
+                setSelectedPlantingId(planting.id);
+                setSeason("all");
+                setView("plan");
+              }}
             />
           )}
 
-          {view === "bloom" && <BloomView plants={state.plants} />}
+          {view === "bloom" && (
+            <BloomView plants={state.plants} onObservation={recordBloomObservation} />
+          )}
 
           {view === "journal" && (
             <JournalView
@@ -506,8 +840,9 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
       {assistantOpen && (
         <AssistantPanel
           state={state}
+          isPreview={isPreview}
           onClose={() => setAssistantOpen(false)}
-          onAsk={() => setToast("Вопрос поставлен в очередь — ответ придёт уведомлением")}
+          onAsk={askAssistant}
         />
       )}
 
@@ -521,6 +856,8 @@ function TodayView({
   weather,
   progress,
   tasks,
+  plantingCount,
+  zoneCount,
   selectedTask,
   onSelectTask,
   onTaskAction,
@@ -531,13 +868,15 @@ function TodayView({
   weather: typeof WEATHER_FALLBACK;
   progress: number;
   tasks: GardenTask[];
+  plantingCount: number;
+  zoneCount: number;
   selectedTask: GardenTask | null;
   onSelectTask: (id: string) => void;
   onTaskAction: (
     id: string,
     action: "done" | "partial" | "skip" | "postpone",
   ) => void;
-  onOpenPlan: (zone: string) => void;
+  onOpenPlan: (task: GardenTask) => void;
   onOpenBloom: () => void;
 }) {
   return (
@@ -577,7 +916,7 @@ function TodayView({
           <div className="section-head">
             <div>
               <p className="eyebrow">План на день</p>
-              <h2>{tasks.length > 0 ? `${tasks.length} важных дела` : "На сегодня всё"}</h2>
+              <h2>{tasks.length > 0 ? russianCount(tasks.length, "важное дело", "важных дела", "важных дел") : "На сегодня всё"}</h2>
             </div>
             <div className="progress-compact">
               <span style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}>{progress}%</span>
@@ -648,7 +987,7 @@ function TodayView({
                 <button onClick={() => onTaskAction(selectedTask.id, "postpone")}>Перенести</button>
                 <button onClick={() => onTaskAction(selectedTask.id, "skip")}>Неактуально</button>
               </div>
-              <button className="zone-link" onClick={() => onOpenPlan(selectedTask.zone)}>
+              <button className="zone-link" onClick={() => onOpenPlan(selectedTask)}>
                 Показать место на плане <span>↗</span>
               </button>
             </div>
@@ -661,7 +1000,7 @@ function TodayView({
             <div>
               <p className="eyebrow">Ночной анализ</p>
               <h3>Сад выглядит устойчиво</h3>
-              <p>Проверено 6 растений, 4 зоны и прогноз на 7 дней. Новых рисков не найдено.</p>
+              <p>Проверено {russianCount(plantingCount, "посадка", "посадки", "посадок")}, {russianCount(zoneCount, "зона", "зоны", "зон")} и прогноз на 7 дней. Новых рисков не найдено.</p>
             </div>
           </div>
         </aside>
@@ -672,8 +1011,13 @@ function TodayView({
 
 function PlanView({
   objects,
+  plantings,
+  plants,
   selectedObject,
   selectedObjectId,
+  selectedPlanting,
+  selectedPlant,
+  pendingPlant,
   season,
   zoom,
   canUndo,
@@ -681,13 +1025,25 @@ function PlanView({
   onZoom,
   onUndo,
   onSelect,
+  onSelectPlanting,
   onChange,
+  onMovePlanting,
+  onPlace,
+  onCancelPlacement,
+  onUpdatePlantingQuantity,
+  onRemovePlanting,
+  onOpenPlants,
   onAdd,
   onDelete,
 }: {
   objects: PlanObject[];
+  plantings: Planting[];
+  plants: Plant[];
   selectedObject: PlanObject | null;
   selectedObjectId: string | null;
+  selectedPlanting: Planting | null;
+  selectedPlant: Plant | null;
+  pendingPlant: Plant | null;
   season: "all" | "permanent" | "2026" | "2027";
   zoom: number;
   canUndo: boolean;
@@ -695,11 +1051,26 @@ function PlanView({
   onZoom: (zoom: number) => void;
   onUndo: () => void;
   onSelect: (id: string | null) => void;
+  onSelectPlanting: (id: string | null) => void;
   onChange: (object: PlanObject) => void;
+  onMovePlanting: (id: string, x: number, y: number) => void;
+  onPlace: (x: number, y: number) => void;
+  onCancelPlacement: () => void;
+  onUpdatePlantingQuantity: (id: string, quantity: number) => void;
+  onRemovePlanting: (id: string) => void;
+  onOpenPlants: () => void;
   onAdd: (type: PlanObjectType) => void;
   onDelete: () => void;
 }) {
   const quickObjects: PlanObjectType[] = ["bed", "flowerbed", "tree", "shrub", "greenhouse", "lawn", "path", "building"];
+  const linkedPlantings = selectedObject
+    ? plantings.filter((planting) => planting.planObjectId === selectedObject.id)
+    : [];
+  const selectedZone = selectedPlanting
+    ? objects.find((object) => object.id === selectedPlanting.planObjectId)?.label ??
+      selectedPlant?.zone ??
+      "Участок"
+    : null;
   return (
     <>
       <section className="page-title-row">
@@ -707,16 +1078,27 @@ function PlanView({
         <div className="plan-controls">
           <button className="icon-button" disabled={!canUndo} onClick={onUndo} aria-label="Отменить">↶</button>
           <div className="zoom-control"><button onClick={() => onZoom(Math.max(0.7, zoom - 0.1))}>−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => onZoom(Math.min(1.4, zoom + 0.1))}>+</button></div>
-          <button className="outline-button">Подложка</button>
         </div>
       </section>
 
-      <section className="plan-workspace">
+      {pendingPlant && (
+        <section className="placement-banner" role="status">
+          <div className="placement-symbol">+</div>
+          <div>
+            <p className="eyebrow">Размещение растения</p>
+            <strong>{pendingPlant.name}</strong>
+            <span>{placementHintForPlant(pendingPlant)}</span>
+          </div>
+          <button className="soft-button" onClick={onCancelPlacement}>Отменить</button>
+        </section>
+      )}
+
+      <section className={`plan-workspace ${pendingPlant ? "is-placing" : ""}`}>
         <div className="object-palette">
           <div className="palette-head"><strong>Добавить на план</strong><small>1 клетка = 1 метр</small></div>
           <div className="palette-grid">
             {quickObjects.map((type) => (
-              <button key={type} onClick={() => onAdd(type)}>
+              <button key={type} disabled={Boolean(pendingPlant)} onClick={() => onAdd(type)}>
                 <span className={`object-swatch swatch-${type}`} />
                 {OBJECT_LABELS[type]}
               </button>
@@ -734,12 +1116,59 @@ function PlanView({
         </div>
 
         <div className="canvas-column">
-          <div className="canvas-toolbar"><span><i className="online-dot" /> Автосохранение</span><span>Привязка к сетке включена</span></div>
-          <GardenCanvas objects={objects} selectedId={selectedObjectId} zoom={zoom} onSelect={onSelect} onChange={onChange} />
+          <div className="canvas-toolbar">
+            <span><i className="online-dot" /> Автосохранение</span>
+            <span>{pendingPlant ? "Нажмите на подходящее место" : `${plantings.length} посадок на плане`}</span>
+          </div>
+          <GardenCanvas
+            objects={objects}
+            plantings={plantings}
+            plants={plants}
+            selectedId={selectedObjectId}
+            selectedPlantingId={selectedPlanting?.id ?? null}
+            placementPlant={pendingPlant}
+            zoom={zoom}
+            onSelect={onSelect}
+            onSelectPlanting={onSelectPlanting}
+            onChange={onChange}
+            onMovePlanting={onMovePlanting}
+            onPlace={onPlace}
+          />
         </div>
 
         <aside className="object-inspector">
-          {selectedObject ? (
+          {selectedPlanting && selectedPlant ? (
+            <>
+              <div className="inspector-head planting-inspector-head">
+                <span className={`planting-dot kind-${selectedPlant.kind.toLowerCase()}`} />
+                <div><small>{selectedPlant.kind} · посадка</small><strong>{selectedPlant.name}</strong></div>
+              </div>
+              <div className="placement-status"><StatusPill tone="green">на плане</StatusPill><span>{selectedZone}</span></div>
+              <label>
+                Количество
+                <input
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={selectedPlanting.quantity}
+                  onChange={(event) =>
+                    onUpdatePlantingQuantity(
+                      selectedPlanting.id,
+                      Number(event.target.value),
+                    )
+                  }
+                />
+              </label>
+              <div className="inspector-note">
+                <strong>Посадка связана с календарём</strong>
+                <p>Задачи и журнал ведутся для этого растения и выбранного места.</p>
+              </div>
+              <div className="inspector-actions">
+                <button className="soft-button" onClick={onOpenPlants}>Карточка растения</button>
+                <button className="danger-link" onClick={() => onRemovePlanting(selectedPlanting.id)}>Убрать с плана</button>
+              </div>
+            </>
+          ) : selectedObject ? (
             <>
               <div className="inspector-head"><span className={`object-swatch swatch-${selectedObject.type}`} /><div><small>{OBJECT_LABELS[selectedObject.type]}</small><strong>{selectedObject.label}</strong></div></div>
               <label>Название<input value={selectedObject.label} onChange={(event) => onChange({ ...selectedObject, label: event.target.value })} /></label>
@@ -749,10 +1178,23 @@ function PlanView({
               </div>
               <label>Сезон<select value={selectedObject.season} onChange={(event) => onChange({ ...selectedObject, season: event.target.value as PlanObject["season"] })}><option value="permanent">Постоянный</option><option value="2026">2026</option><option value="2027">2027</option></select></label>
               <div className="inspector-note"><strong>Условия зоны</strong><p>Освещение и почву можно уточнить после размещения растений.</p></div>
+              {linkedPlantings.length > 0 && (
+                <div className="linked-plantings">
+                  <strong>Посадки в зоне</strong>
+                  {linkedPlantings.map((planting) => {
+                    const plant = plants.find((item) => item.id === planting.plantId);
+                    return plant ? (
+                      <button key={planting.id} onClick={() => onSelectPlanting(planting.id)}>
+                        <span>{plant.name}</span><small>{plantCountLabel(planting.quantity)}</small>
+                      </button>
+                    ) : null;
+                  })}
+                </div>
+              )}
               <button className="danger-link" onClick={onDelete}>Удалить с плана</button>
             </>
           ) : (
-            <div className="inspector-empty"><span>↖</span><strong>Выберите объект</strong><p>Здесь появятся размеры, сезон и условия выбранной зоны.</p></div>
+            <div className="inspector-empty"><span>↖</span><strong>Выберите объект или посадку</strong><p>Здесь появятся место, количество и связанные действия.</p></div>
           )}
         </aside>
       </section>
@@ -762,32 +1204,50 @@ function PlanView({
 
 function PlantsView({
   gardenPlants,
+  plantings,
   catalog,
   query,
   filter,
   onQuery,
   onFilter,
   onAdd,
+  onPlace,
+  onLocate,
 }: {
   gardenPlants: Plant[];
+  plantings: Planting[];
   catalog: Plant[];
   query: string;
   filter: "Все" | PlantKind;
   onQuery: (query: string) => void;
   onFilter: (filter: "Все" | PlantKind) => void;
   onAdd: (plant: Plant) => void;
+  onPlace: (plantId: string) => void;
+  onLocate: (plantId: string) => void;
 }) {
+  const placedCount = new Set(plantings.map((planting) => planting.plantId)).size;
   return (
     <>
-      <section className="page-title-row"><div><p className="eyebrow">Каталог и посадки</p><h1>Растения сада</h1><p className="lead">Каталог различает вид, сорт и конкретное растение на вашем участке.</p></div><StatusPill tone="green">{gardenPlants.length} на участке</StatusPill></section>
+      <section className="page-title-row"><div><p className="eyebrow">Каталог и посадки</p><h1>Растения сада</h1><p className="lead">Добавьте растение, укажите место на плане и получите связанные задачи ухода.</p></div><StatusPill tone="green">{placedCount} из {gardenPlants.length} размещено</StatusPill></section>
       <section className="my-plants-strip">
-        {gardenPlants.map((plant) => (
-          <article key={plant.id} className="my-plant-card">
-            <div className={`plant-portrait kind-${plant.kind.toLowerCase()}`}><span>{plant.name.slice(0, 1)}</span></div>
-            <div><span className="plant-kind">{plant.kind}</span><h3>{plant.name}</h3><p>{plant.zone}</p><small>{plant.countLabel}</small></div>
-            <StatusPill tone={plant.careCoverage === "full" ? "green" : plant.careCoverage === "basic" ? "sand" : "rose"}>{plant.careCoverage === "full" ? "полный уход" : plant.careCoverage === "basic" ? "базовый уход" : "своя запись"}</StatusPill>
-          </article>
-        ))}
+        {gardenPlants.map((plant) => {
+          const placements = plantings.filter(
+            (planting) => planting.plantId === plant.id,
+          );
+          const isPlaced = placements.length > 0;
+          return (
+            <article key={plant.id} className={`my-plant-card ${isPlaced ? "" : "needs-placement"}`}>
+              <div className={`plant-portrait kind-${plant.kind.toLowerCase()}`}><span>{plant.name.slice(0, 1)}</span></div>
+              <div><span className="plant-kind">{plant.kind}</span><h3>{plant.name}</h3><p>{isPlaced ? plant.zone : "Место ещё не выбрано"}</p><small>{plant.countLabel}{placements.length > 1 ? ` · ${placements.length} посадки` : ""}</small></div>
+              <div className="plant-card-actions">
+                <StatusPill tone={isPlaced ? "green" : "rose"}>{isPlaced ? "на плане" : "не размещено"}</StatusPill>
+                <button onClick={() => isPlaced ? onLocate(plant.id) : onPlace(plant.id)}>
+                  {isPlaced ? "Показать" : "Разместить"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </section>
 
       <section className="catalog-section">
@@ -801,7 +1261,7 @@ function PlantsView({
             <article key={plant.id} className="catalog-card">
               <div className="catalog-art" style={{ "--plant-color": plant.bloomColor ?? (plant.kind === "Овощи" ? "#8eab6f" : "#c19a70") } as React.CSSProperties}><span>{plant.name.slice(0, 2)}</span></div>
               <div className="catalog-copy"><span>{plant.kind}</span><h3>{plant.name}</h3><em>{plant.latinName}</em>{plant.bloomStart && <p>Цветение: {MONTHS[plant.bloomStart - 1]}–{MONTHS[(plant.bloomEnd ?? plant.bloomStart) - 1]}</p>}</div>
-              <button aria-label={`Добавить ${plant.name}`} onClick={() => onAdd(plant)}>+</button>
+              <button title="Добавить и разместить" aria-label={`Добавить и разместить ${plant.name}`} onClick={() => onAdd(plant)}>+</button>
             </article>
           ))}
         </div>
@@ -810,7 +1270,13 @@ function PlantsView({
   );
 }
 
-function BloomView({ plants }: { plants: Plant[] }) {
+function BloomView({
+  plants,
+  onObservation,
+}: {
+  plants: Plant[];
+  onObservation: (flowering: boolean) => void;
+}) {
   const bloomers = plants.filter((plant) => plant.bloomStart && plant.bloomEnd);
   return (
     <>
@@ -835,7 +1301,7 @@ function BloomView({ plants }: { plants: Plant[] }) {
           ))}
         </div>
       </section>
-      <section className="observation-callout"><div className="observation-art"><span /><span /><span /></div><div><p className="eyebrow">Помогите уточнить календарь</p><h3>Гортензия уже раскрыла больше половины соцветий?</h3><p>Одно короткое подтверждение сделает прогноз этого и следующего сезона точнее.</p></div><div className="observation-actions"><button className="primary-button">Да, цветёт</button><button className="soft-button">Пока нет</button></div></section>
+      <section className="observation-callout"><div className="observation-art"><span /><span /><span /></div><div><p className="eyebrow">Помогите уточнить календарь</p><h3>Гортензия уже раскрыла больше половины соцветий?</h3><p>Одно короткое подтверждение сделает прогноз этого и следующего сезона точнее.</p></div><div className="observation-actions"><button className="primary-button" onClick={() => onObservation(true)}>Да, цветёт</button><button className="soft-button" onClick={() => onObservation(false)}>Пока нет</button></div></section>
     </>
   );
 }
@@ -845,7 +1311,7 @@ function JournalView({ entries, draft, onDraft, onSubmit }: { entries: GardenSta
     <>
       <section className="page-title-row"><div><p className="eyebrow">История сада</p><h1>Журнал наблюдений</h1><p className="lead">Короткие заметки помогают календарю учитывать реальную жизнь участка.</p></div></section>
       <div className="journal-layout">
-        <form className="journal-compose" onSubmit={onSubmit}><p className="eyebrow">Новая запись</p><h2>Что изменилось в саду?</h2><textarea value={draft} onChange={(event) => onDraft(event.target.value)} placeholder="Например: зацвела гортензия, собрали огурцы…" /><div><button type="button" className="soft-button">Добавить фото</button><button className="primary-button" type="submit">Сохранить</button></div><small>Фото останется в вашем хранилище и не передаётся AI без отдельного согласия.</small></form>
+        <form className="journal-compose" onSubmit={onSubmit}><p className="eyebrow">Новая запись</p><h2>Что изменилось в саду?</h2><textarea value={draft} onChange={(event) => onDraft(event.target.value)} placeholder="Например: зацвела гортензия, собрали огурцы…" /><div><button type="button" className="soft-button" disabled title="Добавление фотографий появится позже">Фото — позже</button><button className="primary-button" type="submit">Сохранить</button></div><small>Сейчас журнал сохраняет текстовые наблюдения. Фотографии появятся в следующей версии.</small></form>
         <section className="journal-feed">
           {entries.map((entry, index) => (
             <article key={entry.id}><div className="journal-date"><span>{entry.date}</span><i /></div><div className="journal-entry"><span className="journal-index">0{index + 1}</span><StatusPill tone="sand">{entry.zone}</StatusPill><h3>{entry.title}</h3><p>{entry.note}</p></div></article>
@@ -856,7 +1322,17 @@ function JournalView({ entries, draft, onDraft, onSubmit }: { entries: GardenSta
   );
 }
 
-function AssistantPanel({ state, onClose, onAsk }: { state: GardenState; onClose: () => void; onAsk: () => void }) {
+function AssistantPanel({
+  state,
+  isPreview,
+  onClose,
+  onAsk,
+}: {
+  state: GardenState;
+  isPreview: boolean;
+  onClose: () => void;
+  onAsk: (question: string) => Promise<void>;
+}) {
   const [question, setQuestion] = useState("");
   return (
     <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -864,8 +1340,8 @@ function AssistantPanel({ state, onClose, onAsk }: { state: GardenState; onClose
         <div className="drawer-head"><div><span className="spark">✦</span><div><p className="eyebrow">Серверный анализ</p><h2>Советник сада</h2></div></div><button onClick={onClose} aria-label="Закрыть">×</button></div>
         <div className="analysis-status"><span className="analysis-pulse" /><div><strong>Последний анализ: {state.lastAnalyzedAt}</strong><p>Проверено {state.plants.length} растений, {state.planObjects.length} объектов и {state.tasks.length} правил ухода.</p></div></div>
         <section className="analysis-card"><p className="eyebrow">Главное наблюдение</p><h3>В теплице три задачи лучше выполнить вместе</h3><p>Полив, сбор огурцов и осмотр томатов относятся к одной зоне. Сначала соберите урожай, затем осмотрите листья и полейте почву, не смачивая зелень.</p><div className="analysis-source"><span>Основано на 3 проверенных правилах</span><StatusPill tone="green">безопасный совет</StatusPill></div></section>
-        <section className="privacy-card"><strong>AI видит только обезличенный контекст</strong><p>Названия растений, условия зон и статусы задач. Email, точные координаты, заметки и фотографии исключены.</p><button>Настройки обработки данных</button></section>
-        <form onSubmit={(event) => { event.preventDefault(); if (!question.trim()) return; onAsk(); setQuestion(""); }} className="question-box"><label htmlFor="garden-question">Задать вопрос по текущему плану</label><textarea id="garden-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Почему сегодня нужно полить теплицу?" /><div><small>Сложный вопрос обрабатывается в очереди</small><button className="primary-button" type="submit">Отправить</button></div></form>
+        <section className="privacy-card"><strong>AI видит только обезличенный контекст</strong><p>Названия растений, условия зон и статусы задач. Email, точные координаты, заметки и фотографии исключены.</p>{isPreview && <small>В публичной демоверсии отправка вопросов отключена.</small>}</section>
+        <form onSubmit={(event) => { event.preventDefault(); const value = question.trim(); if (!value) return; void onAsk(value); setQuestion(""); }} className="question-box"><label htmlFor="garden-question">Задать вопрос по текущему плану</label><textarea id="garden-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Почему сегодня нужно полить теплицу?" /><div><small>{isPreview ? "Доступно в закрытом пилоте" : "Сложный вопрос обрабатывается в очереди"}</small><button className="primary-button" type="submit">{isPreview ? "Проверить доступ" : "Отправить"}</button></div></form>
       </aside>
     </div>
   );

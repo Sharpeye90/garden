@@ -361,6 +361,9 @@ textarea:focus-visible {
   gap: 18px;
 }
 
+.demo-reset { border: 0; background: transparent; color: var(--muted); padding: 6px 0; font-size: 9px; font-weight: 700; cursor: pointer; }
+.demo-reset:hover { color: var(--green); }
+
 .sync-state {
   display: inline-flex;
   align-items: center;
@@ -483,6 +486,9 @@ h3 {
 }
 
 .primary-button:hover { background: #254a35; }
+.soft-button:disabled,
+.outline-button:disabled,
+.primary-button:disabled { opacity: 0.48; cursor: not-allowed; }
 
 .weather-card {
   display: grid;
@@ -639,7 +645,26 @@ h3 {
 .zoom-control button { border: 0; background: transparent; cursor: pointer; }
 .zoom-control span { display: grid; place-items: center; border-right: 1px solid var(--line); border-left: 1px solid var(--line); font-size: 10px; }
 
+.placement-banner {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  margin: -8px 0 16px;
+  border: 1px solid #9daf98;
+  border-radius: 15px;
+  background: #e5ecdf;
+  padding: 13px 16px;
+  box-shadow: 0 10px 28px rgba(46, 74, 54, 0.08);
+}
+.placement-symbol { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: var(--green); color: white; font-family: var(--serif); font-size: 24px; }
+.placement-banner strong,
+.placement-banner span { display: block; }
+.placement-banner strong { margin: 2px 0 3px; font-family: var(--serif); font-size: 18px; }
+.placement-banner span { color: var(--muted); font-size: 10px; }
+
 .plan-workspace { display: grid; grid-template-columns: 192px minmax(0, 1fr) 230px; min-height: 640px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--card); box-shadow: var(--shadow); }
+.plan-workspace.is-placing { border-color: #9daf98; box-shadow: 0 0 0 3px rgba(72, 105, 76, 0.08), var(--shadow); }
 .object-palette { border-right: 1px solid var(--line); padding: 20px 16px; }
 .palette-head strong,
 .palette-head small { display: block; }
@@ -648,6 +673,7 @@ h3 {
 .palette-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 22px; }
 .palette-grid button { display: grid; min-height: 67px; place-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 10px; background: #f8f7f1; color: var(--muted); padding: 7px; font-size: 9px; cursor: pointer; }
 .palette-grid button:hover { border-color: var(--green-2); color: var(--green); }
+.palette-grid button:disabled { opacity: 0.45; cursor: not-allowed; }
 .object-swatch { display: inline-block; width: 29px; height: 23px; border: 1px solid rgba(45, 67, 51, 0.2); border-radius: 5px; background: #d4c5af; }
 .swatch-bed { background: #b98a5d; }
 .swatch-flowerbed { border-radius: 50%; background: #d8a8b4; }
@@ -670,6 +696,7 @@ h3 {
 .canvas-toolbar { justify-content: space-between; height: 44px; border-bottom: 1px solid var(--line); padding: 0 16px; color: var(--muted); font-size: 9px; }
 .canvas-toolbar span { display: inline-flex; align-items: center; gap: 6px; }
 .garden-canvas-wrap { min-width: 0; overflow: auto; background: #f8f7f0; }
+.garden-canvas-wrap[data-placing="true"] canvas { cursor: crosshair !important; }
 .canvas-loading { display: grid; height: 540px; place-items: center; color: var(--muted); font-family: var(--serif); }
 
 .object-inspector { border-left: 1px solid var(--line); background: #f9f8f2; padding: 22px 18px; }
@@ -678,12 +705,24 @@ h3 {
 .inspector-head strong { display: block; }
 .inspector-head small { color: var(--muted); font-size: 9px; }
 .inspector-head strong { margin-top: 3px; font-family: var(--serif); font-size: 16px; }
+.planting-inspector-head .planting-dot { width: 29px; height: 29px; flex: 0 0 auto; border: 3px solid #fffdf6; border-radius: 50%; background: #71985f; box-shadow: 0 0 0 1px #8da08a; }
+.planting-inspector-head .kind-плодовые { background: #587d4e; }
+.planting-inspector-head .kind-декоративные { background: #b87591; }
+.placement-status { display: flex; align-items: center; gap: 8px; margin-top: 15px; }
+.placement-status > span:last-child { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .object-inspector label { display: grid; gap: 7px; margin-top: 17px; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .inspector-note { margin-top: 22px; border-radius: 10px; background: var(--green-soft); padding: 13px; }
 .inspector-note strong { font-size: 10px; }
 .inspector-note p { margin: 5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .danger-link { margin-top: 22px; border: 0; background: transparent; color: var(--rose); padding: 0; font-size: 10px; cursor: pointer; }
+.inspector-actions { display: grid; gap: 12px; margin-top: 20px; }
+.inspector-actions .danger-link { margin-top: 0; }
+.linked-plantings { display: grid; gap: 6px; margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.linked-plantings > strong { margin-bottom: 3px; font-size: 10px; }
+.linked-plantings button { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fffef9; padding: 8px 9px; color: var(--ink); text-align: left; cursor: pointer; }
+.linked-plantings button span { overflow: hidden; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.linked-plantings button small { flex: 0 0 auto; color: var(--muted); font-size: 8px; }
 .inspector-empty { display: grid; height: 100%; min-height: 360px; align-content: center; justify-items: center; text-align: center; }
 .inspector-empty > span { color: #b9beb7; font-family: var(--serif); font-size: 36px; }
 .inspector-empty strong { margin-top: 14px; font-family: var(--serif); }
@@ -691,6 +730,7 @@ h3 {
 
 .my-plants-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .my-plant-card { display: grid; grid-template-columns: 68px 1fr auto; align-items: center; gap: 13px; min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 12px; }
+.my-plant-card.needs-placement { border-color: #d8b9b2; background: #fbf5f1; }
 .plant-portrait { display: grid; width: 68px; height: 78px; place-items: end center; overflow: hidden; border-radius: 11px; background: linear-gradient(150deg, #d9e4ce, #9ab182); }
 .plant-portrait span { margin-bottom: -8px; color: rgba(255,255,255,0.54); font-family: var(--serif); font-size: 62px; }
 .kind-плодовые { background: linear-gradient(150deg, #e2d3bc, #b08162); }
@@ -701,6 +741,8 @@ h3 {
 .my-plant-card p,
 .my-plant-card small { margin: 0; color: var(--muted); font-size: 9px; }
 .my-plant-card small { display: block; margin-top: 4px; }
+.plant-card-actions { display: grid; justify-items: end; gap: 8px; }
+.plant-card-actions button { border: 0; background: transparent; padding: 0; color: var(--green); font-size: 9px; font-weight: 700; cursor: pointer; }
 
 .catalog-section { margin-top: 42px; }
 .catalog-head { justify-content: space-between; gap: 20px; }
@@ -788,6 +830,7 @@ h3 {
 .privacy-card { margin-top: 14px; border: 1px solid #d8cfbc; border-radius: 14px; background: var(--sand); padding: 16px; }
 .privacy-card strong { font-family: var(--serif); font-size: 16px; }
 .privacy-card p { margin: 6px 0 10px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.privacy-card > small { display: block; color: #7a6241; font-size: 8px; }
 .privacy-card button { border: 0; background: transparent; padding: 0; color: var(--green); font-size: 9px; font-weight: 700; cursor: pointer; }
 .question-box { margin-top: 24px; }
 .question-box label { display: block; margin-bottom: 8px; font-family: var(--serif); font-size: 17px; }
@@ -834,6 +877,8 @@ h3 {
   .mobile-nav button span { font-family: var(--serif); font-size: 10px; }
   .mobile-nav button.active { background: var(--green-soft); color: var(--green); font-weight: 700; }
   .plan-workspace { grid-template-columns: 1fr; }
+  .placement-banner { grid-template-columns: 36px 1fr auto; }
+  .placement-symbol { width: 34px; height: 34px; }
   .object-palette { border-right: 0; border-bottom: 1px solid var(--line); }
   .palette-grid { grid-template-columns: repeat(4, 1fr); }
   .object-inspector { grid-column: auto; }
@@ -865,7 +910,7 @@ h3 {
   .palette-grid { grid-template-columns: repeat(3, 1fr); }
   .page-title-row .status-pill { align-self: flex-start; }
   .my-plant-card { grid-template-columns: 50px 1fr; }
-  .my-plant-card > .status-pill { grid-column: 2; }
+  .plant-card-actions { grid-column: 2; justify-items: start; }
   .plant-portrait { width: 50px; height: 62px; }
   .catalog-card { grid-template-columns: 48px 1fr 30px; }
   .catalog-art { width: 48px; height: 48px; }
@@ -877,6 +922,8 @@ h3 {
   .journal-feed article { grid-template-columns: 62px 1fr; }
   .journal-entry { margin-left: 14px; padding: 16px; }
   .assistant-drawer { padding: 20px 16px; }
+  .placement-banner { grid-template-columns: 34px 1fr; }
+  .placement-banner > button { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -50,3 +50,26 @@ test("server contracts cover health, weather, state and assistant queue", async 
   assert.match(state, /FOR UPDATE/);
   assert.match(assistant, /status: "queued"/);
 });
+
+test("plant placement connects catalog, plan, care tasks and journal", async () => {
+  const [types, data, app, canvas, plantings, storage] = await Promise.all([
+    readFile(new URL("app/types.ts", root), "utf8"),
+    readFile(new URL("app/data.ts", root), "utf8"),
+    readFile(new URL("app/components/GardenApp.tsx", root), "utf8"),
+    readFile(new URL("app/components/GardenCanvas.tsx", root), "utf8"),
+    readFile(new URL("app/lib/plantings.ts", root), "utf8"),
+    readFile(new URL("app/lib/storage.ts", root), "utf8"),
+  ]);
+
+  assert.match(types, /export type Planting =/);
+  assert.match(types, /plantingId\?: string/);
+  assert.match(data, /INITIAL_PLANTINGS/);
+  assert.match(app, /placePendingPlant/);
+  assert.match(app, /createCareTask\(pendingPlant, planting, zone\)/);
+  assert.match(app, /связь с посадкой сохранена/);
+  assert.match(canvas, /data-placing=/);
+  assert.match(canvas, /PlantingMarker/);
+  assert.match(plantings, /findPlacementTarget/);
+  assert.match(plantings, /observe\.soil-moisture\.vegetable\.v1/);
+  assert.match(storage, /normalizeState/);
+});

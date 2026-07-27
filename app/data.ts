@@ -1,4 +1,4 @@
-import type { GardenState, Plant, PlanObject } from "./types";
+import type { GardenState, Plant, Planting, PlanObject } from "./types";
 
 export const MONTHS = [
   "Янв",
@@ -227,6 +227,69 @@ export const INITIAL_PLANTS: Plant[] = [
   },
 ];
 
+export const INITIAL_PLANTINGS: Planting[] = [
+  {
+    id: "planting-tomato",
+    plantId: "tomato",
+    planObjectId: "greenhouse-1",
+    mode: "area",
+    x: 430,
+    y: 108,
+    quantity: 8,
+    season: "2026",
+  },
+  {
+    id: "planting-cucumber",
+    plantId: "cucumber",
+    planObjectId: "greenhouse-1",
+    mode: "area",
+    x: 505,
+    y: 128,
+    quantity: 6,
+    season: "2026",
+  },
+  {
+    id: "planting-apple",
+    plantId: "apple-antonovka",
+    planObjectId: "tree-1",
+    mode: "point",
+    x: 129,
+    y: 475,
+    quantity: 1,
+    season: "permanent",
+  },
+  {
+    id: "planting-cherry",
+    plantId: "cherry",
+    planObjectId: "tree-2",
+    mode: "point",
+    x: 210,
+    y: 472,
+    quantity: 1,
+    season: "permanent",
+  },
+  {
+    id: "planting-hydrangea",
+    plantId: "hydrangea",
+    planObjectId: "flowerbed-1",
+    mode: "group",
+    x: 625,
+    y: 128,
+    quantity: 3,
+    season: "permanent",
+  },
+  {
+    id: "planting-echinacea",
+    plantId: "echinacea",
+    planObjectId: "flowerbed-1",
+    mode: "group",
+    x: 682,
+    y: 218,
+    quantity: 9,
+    season: "permanent",
+  },
+];
+
 const CATALOG_ROWS: Array<
   [string, string, Plant["kind"], number?, number?, string?]
 > = [
@@ -359,6 +422,7 @@ export const INITIAL_STATE: GardenState = {
   ],
   planObjects: DEFAULT_PLAN_OBJECTS,
   plants: INITIAL_PLANTS,
+  plantings: INITIAL_PLANTINGS,
   journal: [
     {
       id: "journal-1",
