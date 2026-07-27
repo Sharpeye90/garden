@@ -1,0 +1,12 @@
+.git
+.env*
+.next
+.vinext
+.wrangler
+dist
+node_modules
+coverage
+infra/k2/terraform/.terraform
+infra/k2/terraform/*.tfstate*
+*.log
+.DS_Store

@@ -12,11 +12,13 @@ export const metadata: Metadata = {
 
 export default async function Home() {
   const user = await getChatGPTUser();
+  const singleUserName = process.env.GARDEN_SINGLE_USER_NAME?.trim();
+  const hasSingleUser = Boolean(process.env.GARDEN_SINGLE_USER_KEY?.trim());
 
   return (
     <GardenApp
-      userName={user?.fullName?.split(" ")[0] ?? "Анна"}
-      isPreview={!user}
+      userName={user?.fullName?.split(" ")[0] ?? singleUserName ?? "Анна"}
+      isPreview={!user && !hasSingleUser}
     />
   );
 }

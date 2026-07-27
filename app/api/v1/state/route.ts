@@ -1,6 +1,6 @@
-import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { currentUserKey } from "@/app/lib/server-auth";
+import { ensureSchema, getPool } from "@/db";
 
 export const dynamic = "force-dynamic";
 
@@ -10,54 +10,42 @@ type StatePayload = {
   idempotencyKey?: string;
 };
 
-async function ensureTables(database: D1Database) {
-  await database.batch([
-    database.prepare(`CREATE TABLE IF NOT EXISTS garden_states (
-      user_key TEXT PRIMARY KEY,
-      garden_id TEXT NOT NULL DEFAULT 'primary',
-      payload TEXT NOT NULL,
-      revision INTEGER NOT NULL DEFAULT 1,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`),
-    database.prepare(`CREATE TABLE IF NOT EXISTS idempotency_keys (
-      key TEXT PRIMARY KEY,
-      user_key TEXT NOT NULL,
-      result_revision INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`),
-  ]);
-}
-
-async function currentUserKey() {
-  const user = await getChatGPTUser();
-  if (user) return user.email.toLowerCase();
-  return process.env.NODE_ENV === "production" ? null : "local-preview";
+function storageUnavailable(error: unknown) {
+  console.error("Garden state storage is unavailable", error);
+  return NextResponse.json({ error: "storage_unavailable" }, { status: 503 });
 }
 
 export async function GET() {
   const userKey = await currentUserKey();
   if (!userKey) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
-  if (!env.DB) return NextResponse.json({ error: "storage_unavailable" }, { status: 503 });
 
-  await ensureTables(env.DB);
-  const row = await env.DB.prepare(
-    "SELECT payload, revision, updated_at AS updatedAt FROM garden_states WHERE user_key = ?",
-  )
-    .bind(userKey)
-    .first<{ payload: string; revision: number; updatedAt: string }>();
+  try {
+    await ensureSchema();
+    const result = await getPool().query<{
+      payload: unknown;
+      revision: number;
+      updatedAt: string;
+    }>(
+      `SELECT payload, revision, updated_at AS "updatedAt"
+       FROM garden_states WHERE user_key = $1`,
+      [userKey],
+    );
 
-  if (!row) return new NextResponse(null, { status: 204 });
-  return NextResponse.json({
-    state: JSON.parse(row.payload),
-    revision: row.revision,
-    updatedAt: row.updatedAt,
-  });
+    const row = result.rows[0];
+    if (!row) return new NextResponse(null, { status: 204 });
+    return NextResponse.json({
+      state: row.payload,
+      revision: row.revision,
+      updatedAt: row.updatedAt,
+    });
+  } catch (error) {
+    return storageUnavailable(error);
+  }
 }
 
 export async function PUT(request: Request) {
   const userKey = await currentUserKey();
   if (!userKey) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
-  if (!env.DB) return NextResponse.json({ error: "storage_unavailable" }, { status: 503 });
 
   let body: StatePayload;
   try {
@@ -70,46 +58,67 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
   }
 
-  await ensureTables(env.DB);
-  const replay = await env.DB.prepare(
-    "SELECT result_revision AS revision FROM idempotency_keys WHERE key = ? AND user_key = ?",
-  )
-    .bind(body.idempotencyKey, userKey)
-    .first<{ revision: number }>();
-  if (replay) return NextResponse.json(replay);
-
-  const existing = await env.DB.prepare(
-    "SELECT revision FROM garden_states WHERE user_key = ?",
-  )
-    .bind(userKey)
-    .first<{ revision: number }>();
-
-  const currentRevision = existing?.revision ?? 0;
-  if (
-    typeof body.expectedRevision === "number" &&
-    body.expectedRevision !== currentRevision
-  ) {
-    return NextResponse.json(
-      { error: "revision_conflict", currentRevision },
-      { status: 409 },
-    );
-  }
-
-  const nextRevision = currentRevision + 1;
   const payload = JSON.stringify(body.state);
   if (payload.length > 1_500_000) {
     return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
   }
 
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO garden_states (user_key, garden_id, payload, revision, updated_at)
-      VALUES (?, 'primary', ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(user_key) DO UPDATE SET payload = excluded.payload, revision = excluded.revision, updated_at = CURRENT_TIMESTAMP`)
-      .bind(userKey, payload, nextRevision),
-    env.DB.prepare(
-      "INSERT INTO idempotency_keys (key, user_key, result_revision) VALUES (?, ?, ?)",
-    ).bind(body.idempotencyKey, userKey, nextRevision),
-  ]);
+  try {
+    await ensureSchema();
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      const replay = await client.query<{ revision: number }>(
+        `SELECT result_revision AS revision
+         FROM idempotency_keys WHERE key = $1 AND user_key = $2`,
+        [body.idempotencyKey, userKey],
+      );
+      if (replay.rows[0]) {
+        await client.query("COMMIT");
+        return NextResponse.json(replay.rows[0]);
+      }
 
-  return NextResponse.json({ revision: nextRevision });
+      const existing = await client.query<{ revision: number }>(
+        "SELECT revision FROM garden_states WHERE user_key = $1 FOR UPDATE",
+        [userKey],
+      );
+      const currentRevision = existing.rows[0]?.revision ?? 0;
+
+      if (
+        typeof body.expectedRevision === "number" &&
+        body.expectedRevision !== currentRevision
+      ) {
+        await client.query("ROLLBACK");
+        return NextResponse.json(
+          { error: "revision_conflict", currentRevision },
+          { status: 409 },
+        );
+      }
+
+      const nextRevision = currentRevision + 1;
+      await client.query(
+        `INSERT INTO garden_states (user_key, garden_id, payload, revision, updated_at)
+         VALUES ($1, 'primary', $2::jsonb, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (user_key) DO UPDATE SET
+           payload = EXCLUDED.payload,
+           revision = EXCLUDED.revision,
+           updated_at = CURRENT_TIMESTAMP`,
+        [userKey, payload, nextRevision],
+      );
+      await client.query(
+        `INSERT INTO idempotency_keys (key, user_key, result_revision)
+         VALUES ($1, $2, $3)`,
+        [body.idempotencyKey, userKey, nextRevision],
+      );
+      await client.query("COMMIT");
+      return NextResponse.json({ revision: nextRevision });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    return storageUnavailable(error);
+  }
 }

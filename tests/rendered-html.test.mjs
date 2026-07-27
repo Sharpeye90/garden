@@ -4,12 +4,12 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("build contains the garden assistant worker and assets", async () => {
+test("build contains the standalone garden assistant and assets", async () => {
   await Promise.all([
     access(new URL("dist/server/index.js", root)),
+    access(new URL("dist/standalone/server.js", root)),
     access(new URL("dist/client/og.png", root)),
     access(new URL("dist/client/icon.png", root)),
-    access(new URL("dist/.openai/hosting.json", root)),
   ]);
 });
 
@@ -43,8 +43,25 @@ test("server contracts cover health, weather, state and assistant queue", async 
   ]);
 
   assert.match(health, /garden-rhythm/);
+  assert.match(health, /database/);
   assert.match(weather, /open-meteo\.com/);
   assert.match(state, /revision_conflict/);
   assert.match(state, /idempotency_keys/);
+  assert.match(state, /FOR UPDATE/);
   assert.match(assistant, /status: "queued"/);
+});
+
+test("K2 deployment stays private and uses managed PostgreSQL", async () => {
+  const [terraform, compose, deploy, dockerfile] = await Promise.all([
+    readFile(new URL("infra/k2/terraform/main.tf", root), "utf8"),
+    readFile(new URL("docker-compose.k2.yml", root), "utf8"),
+    readFile(new URL("scripts/k2-deploy-app.sh", root), "utf8"),
+    readFile(new URL("Dockerfile", root), "utf8"),
+  ]);
+
+  assert.match(terraform, /aws_paas_service" "postgres/);
+  assert.match(terraform, /associate_public_ip_address = false/);
+  assert.match(compose, /DATABASE_URL/);
+  assert.match(deploy, /api\/v1\/health/);
+  assert.match(dockerfile, /dist\/standalone\/server\.js/);
 });
