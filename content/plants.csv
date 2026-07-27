@@ -1,0 +1,11 @@
+id,name_ru,scientific_name,kind,bloom_start,bloom_end,coverage,external_taxon_id
+tomato,Томат,Solanum lycopersicum,vegetable,,,full,
+cucumber,Огурец,Cucumis sativus,vegetable,,,full,
+apple,Яблоня,Malus domestica,fruit,5,5,full,
+cherry,Вишня,Prunus cerasus,fruit,5,6,full,
+currant-black,Смородина чёрная,Ribes nigrum,fruit,5,5,full,
+raspberry,Малина,Rubus idaeus,fruit,6,7,full,
+hydrangea-panicle,Гортензия метельчатая,Hydrangea paniculata,ornamental,7,10,full,
+echinacea,Эхинацея пурпурная,Echinacea purpurea,ornamental,7,9,basic,
+peony,Пион молочноцветковый,Paeonia lactiflora,ornamental,6,7,basic,
+phlox,Флокс метельчатый,Phlox paniculata,ornamental,7,9,basic,

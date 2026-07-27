@@ -1,0 +1,5 @@
+id,version,plant_id,action,window_start,window_end,risk,min_confidence,publishable,source_url
+watering-greenhouse,3,tomato,water,07-01,08-31,low,0.80,false,
+harvest-cucumber,2,cucumber,harvest,07-01,09-15,low,0.85,false,
+observe-tomato-humidity,4,tomato,observe,07-01,08-31,low,0.80,false,
+deadhead-echinacea,2,echinacea,deadhead,07-15,09-01,low,0.75,false,
