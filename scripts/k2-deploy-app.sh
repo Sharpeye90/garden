@@ -11,9 +11,15 @@ TF_DIR="$ROOT/infra/k2/terraform"
 export TF_CLI_CONFIG_FILE="$TF_DIR/terraformrc"
 APP_IP="$(terraform -chdir="$TF_DIR" output -raw app_private_ip)"
 APP_URL="$(terraform -chdir="$TF_DIR" output -raw app_url)"
+PUBLIC_IP="$(terraform -chdir="$TF_DIR" output -raw app_public_ip)"
 TF_SSH_USER="$(terraform -chdir="$TF_DIR" output -raw ssh_user)"
 SSH_USER="${K2_DEPLOY_SSH_USER:-$TF_SSH_USER}"
 DATABASE_URL="$(terraform -chdir="$TF_DIR" output -raw database_url)"
+
+if [[ -z "$PUBLIC_IP" ]]; then
+  echo "The K2 VM has no associated Elastic IP" >&2
+  exit 1
+fi
 
 GARDEN_TMP_DIR="$(mktemp -d)"
 cleanup() {
@@ -45,6 +51,7 @@ COPYFILE_DISABLE=1 tar \
   printf 'DATABASE_POOL_SIZE=%s\n' "${DATABASE_POOL_SIZE:-8}"
   printf 'GARDEN_SINGLE_USER_KEY=%s\n' "${GARDEN_SINGLE_USER_KEY:-garden-owner}"
   printf 'GARDEN_SINGLE_USER_NAME=%s\n' "${GARDEN_SINGLE_USER_NAME:-Садовод}"
+  printf 'GARDEN_PUBLIC_HOST=%s\n' "$PUBLIC_IP"
 } > "$RUNTIME_ENV"
 chmod 600 "$RUNTIME_ENV"
 
@@ -98,4 +105,5 @@ sudo docker compose -p garden-rhythm -f docker-compose.k2.yml logs --tail=160 ap
 exit 1
 REMOTE
 
-echo "Garden Rhythm is available through VPN: $APP_URL"
+echo "Garden Rhythm private URL: $APP_URL"
+echo "Garden Rhythm public demo: https://$PUBLIC_IP"

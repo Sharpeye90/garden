@@ -65,3 +65,21 @@ test("K2 deployment stays private and uses managed PostgreSQL", async () => {
   assert.match(deploy, /api\/v1\/health/);
   assert.match(dockerfile, /dist\/standalone\/server\.js/);
 });
+
+test("public K2 entrypoint is HTTPS-only and isolated from private APIs", async () => {
+  const [caddy, compose, auth, app, terraform] = await Promise.all([
+    readFile(new URL("Caddyfile", root), "utf8"),
+    readFile(new URL("docker-compose.k2.yml", root), "utf8"),
+    readFile(new URL("app/lib/server-auth.ts", root), "utf8"),
+    readFile(new URL("app/components/GardenApp.tsx", root), "utf8"),
+    readFile(new URL("infra/k2/terraform/main.tf", root), "utf8"),
+  ]);
+
+  assert.match(caddy, /profile shortlived/);
+  assert.match(caddy, /@private_api path \/api\/v1\/\*/);
+  assert.match(caddy, /Strict-Transport-Security/);
+  assert.match(compose, /caddy:2\.11\.4-alpine/);
+  assert.match(auth, /if \(await isPublicDemoRequest\(\)\) return null/);
+  assert.match(app, /if \(isPreview\)[\s\S]*setSyncStatus\("saved"\)/);
+  assert.match(terraform, /Public HTTPS for Garden Rhythm demo/);
+});

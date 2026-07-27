@@ -160,12 +160,16 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       await writeLocalState(state);
+      if (isPreview) {
+        setSyncStatus("saved");
+        return;
+      }
       if (!online) {
         setSyncStatus("offline");
         return;
       }
       const result = await syncRemoteState(state);
-      setSyncStatus(result || isPreview ? "saved" : "offline");
+      setSyncStatus(result ? "saved" : "offline");
     }, 450);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -376,7 +380,7 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
           <span className="avatar">{userName.slice(0, 1).toUpperCase()}</span>
           <span>
             <strong>{userName}</strong>
-            <small>Основной сад</small>
+            <small>{isPreview ? "Демо-сад · данные в браузере" : "Основной сад"}</small>
           </span>
           <span className="profile-more">•••</span>
         </button>
@@ -398,7 +402,9 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
                 ? "Сохраняем"
                 : syncStatus === "offline"
                   ? "Офлайн"
-                  : "Всё сохранено"}
+                  : isPreview
+                    ? "Сохранено в браузере"
+                    : "Всё сохранено"}
             </span>
             <button
               className="assistant-button"

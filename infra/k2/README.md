@@ -4,9 +4,14 @@ The alpha environment is intentionally private:
 
 - one VM in the existing VPC/subnet;
 - one managed PostgreSQL 16 service;
-- no Elastic IP and no public DNS;
-- access to the app on port `8000` through VPN/private networks;
+- an Elastic IP may be attached outside Terraform for the public demo;
+- full access to the app on port `8000` through VPN/private networks;
+- public demo access through Caddy on HTTPS `443` with HTTP redirect on `80`;
 - PostgreSQL accepts connections only from the application security group.
+
+The public demo stores edits only in the visitor's browser. Caddy exposes the
+weather endpoint but blocks all other `/api/v1/*` routes. The private VPN entry
+keeps the single-user PostgreSQL-backed mode.
 
 The root `.env` is loaded without `eval` and is ignored by Git. Required keys:
 `K2_ACCESS_KEY`, `K2_SECRET_KEY`, `K2_REGION`, `K2_VPC_ID`,

@@ -63,6 +63,30 @@ resource "aws_security_group" "app" {
     }
   }
 
+  ingress {
+    description = "Public HTTP for HTTPS certificate validation and redirect"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Public HTTPS for Garden Rhythm demo"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Public HTTP/3 for Garden Rhythm demo"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   dynamic "ingress" {
     for_each = toset(local.admin_cidrs)
     content {
@@ -199,4 +223,8 @@ resource "aws_instance" "app" {
   }
 
   depends_on = [aws_paas_service.postgres]
+
+  lifecycle {
+    ignore_changes = [associate_public_ip_address]
+  }
 }

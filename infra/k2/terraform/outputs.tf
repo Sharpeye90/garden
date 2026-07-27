@@ -15,6 +15,16 @@ output "app_url" {
   description = "Private application URL."
 }
 
+output "app_public_ip" {
+  value       = aws_instance.app.public_ip
+  description = "Elastic IP associated with the app VM outside Terraform."
+}
+
+output "public_url" {
+  value       = "https://${aws_instance.app.public_ip}"
+  description = "Public HTTPS demo URL."
+}
+
 output "app_instance_id" {
   value = aws_instance.app.id
 }

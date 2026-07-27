@@ -1,0 +1,32 @@
+{$GARDEN_PUBLIC_HOST} {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	@weather path /api/v1/weather
+	handle @weather {
+		reverse_proxy app:3000
+	}
+
+	@private_api path /api/v1/*
+	handle @private_api {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+}
