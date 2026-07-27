@@ -25,6 +25,7 @@ ARCHIVE="$GARDEN_TMP_DIR/garden-rhythm.tar.gz"
 RUNTIME_ENV="$GARDEN_TMP_DIR/garden.env"
 
 COPYFILE_DISABLE=1 tar \
+  --no-xattrs \
   --exclude='.git' \
   --exclude='.env' \
   --exclude='.env.*' \
@@ -47,13 +48,27 @@ COPYFILE_DISABLE=1 tar \
 } > "$RUNTIME_ENV"
 chmod 600 "$RUNTIME_ENV"
 
-SSH_OPTIONS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
+SSH_OPTIONS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
 PRIVATE_KEY="$(k2_ssh_private_key_path || true)"
 if [[ -n "$PRIVATE_KEY" ]]; then
   SSH_OPTIONS+=(-i "$PRIVATE_KEY")
 fi
 
 echo "Deploying Garden Rhythm to $APP_URL"
+ssh_ready=false
+for attempt in {1..30}; do
+  if ssh "${SSH_OPTIONS[@]}" "$SSH_USER@$APP_IP" true >/dev/null 2>&1; then
+    ssh_ready=true
+    break
+  fi
+  sleep 10
+done
+if [[ "$ssh_ready" != true ]]; then
+  ssh "${SSH_OPTIONS[@]}" "$SSH_USER@$APP_IP" true || true
+  echo "K2 VM did not become reachable over SSH within 5 minutes" >&2
+  exit 1
+fi
+
 scp "${SSH_OPTIONS[@]}" "$ARCHIVE" "$RUNTIME_ENV" "$SSH_USER@$APP_IP:/tmp/"
 
 ssh "${SSH_OPTIONS[@]}" "$SSH_USER@$APP_IP" 'bash -s' <<'REMOTE'
@@ -72,7 +87,7 @@ sudo docker compose -p garden-rhythm -f docker-compose.k2.yml --env-file /opt/ga
 
 for attempt in {1..40}; do
   if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null; then
-    sudo docker compose -p garden-rhythm -f docker-compose.k2.yml ps
+    sudo docker compose -p garden-rhythm -f docker-compose.k2.yml --env-file /opt/garden/garden.env ps
     exit 0
   fi
   sleep 3
