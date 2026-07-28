@@ -59,6 +59,7 @@ test("server contracts cover health, weather, state and assistant queue", async 
   assert.match(requestLink, /rate_limited/);
   assert.match(verify, /SESSION_COOKIE/);
   assert.match(verify, /used_at IS NULL/);
+  assert.match(verify, /GARDEN_APP_URL/);
   assert.match(serverAuth, /getSessionUser/);
 });
 
@@ -94,6 +95,7 @@ test("invite CLI manages the database allowlist without a rebuild", async () => 
   assert.match(auth, /FROM auth_invites/);
   assert.match(requestLink, /await invitedEmail\(email\)/);
   assert.match(cli, /addInvite/);
+  assert.match(cli, /createMagicLink/);
   assert.match(cli, /removeInvite/);
   assert.match(cli, /--logout/);
   assert.match(dockerfile, /dist\/standalone\/scripts/);
@@ -105,6 +107,7 @@ test("invite CLI manages the database allowlist without a rebuild", async () => 
   );
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /npm run invites -- add EMAIL/);
+  assert.match(help.stdout, /npm run invites -- link EMAIL/);
 });
 
 test("plant placement connects catalog, plan, care tasks and journal", async () => {

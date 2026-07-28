@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import pg from "pg";
+import { createHash, randomBytes } from "node:crypto";
 
 const { Client } = pg;
 
@@ -8,18 +9,21 @@ const HELP = `Инвайты «Ритма сада»
 
 Использование:
   npm run invites -- add EMAIL [--note "текст"]
+  npm run invites -- link EMAIL [--minutes 15] [--json]
   npm run invites -- remove EMAIL [--logout]
   npm run invites -- list [--all] [--json]
   npm run invites -- check EMAIL [--json]
 
 Команды:
   add       добавить или восстановить приглашение
+  link      выпустить одноразовую ссылку входа для приглашённого
   remove    запретить новые входы и отозвать неиспользованные ссылки
   list      показать активные приглашения
   check     проверить конкретный email
 
 Флаги:
   --note     короткая заметка о приглашении
+  --minutes  срок действия ссылки от 1 до 1440 минут
   --logout   при удалении также завершить активные сессии
   --all      показать в списке и отозванные приглашения
   --json     вывести результат в JSON
@@ -42,7 +46,13 @@ function normalizeEmail(value) {
 
 function parseArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { all: false, json: false, logout: false, note: null };
+  const options = {
+    all: false,
+    json: false,
+    logout: false,
+    minutes: 15,
+    note: null,
+  };
   const positional = [];
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -50,6 +60,14 @@ function parseArguments(argv) {
     if (value === "--all") options.all = true;
     else if (value === "--json") options.json = true;
     else if (value === "--logout") options.logout = true;
+    else if (value === "--minutes") {
+      const minutes = Number(rest[index + 1]);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+        throw new Error("--minutes должен быть целым числом от 1 до 1440");
+      }
+      options.minutes = minutes;
+      index += 1;
+    }
     else if (value === "--note") {
       const note = rest[index + 1];
       if (!note || note.startsWith("--")) throw new Error("После --note нужен текст");
@@ -81,6 +99,15 @@ async function ensureInviteSchema(client) {
     CREATE INDEX IF NOT EXISTS auth_invites_active_created_idx
       ON auth_invites (created_at DESC)
       WHERE revoked_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS auth_magic_links (
+      token_hash TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      requested_ip_hash TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }
 
@@ -113,6 +140,63 @@ async function addInvite(client, email, options) {
     [email, options.note],
   );
   printInvite(result.rows[0], options.json);
+}
+
+async function createMagicLink(client, email, options) {
+  const configuredOrigin = process.env.GARDEN_APP_URL?.trim();
+  if (!configuredOrigin) throw new Error("GARDEN_APP_URL не задан");
+  let origin;
+  try {
+    origin = new URL(configuredOrigin);
+  } catch {
+    throw new Error("GARDEN_APP_URL содержит некорректный адрес");
+  }
+  if (!new Set(["http:", "https:"]).has(origin.protocol)) {
+    throw new Error("GARDEN_APP_URL должен использовать http или https");
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  const hash = createHash("sha256").update(token).digest("hex");
+  await client.query("BEGIN");
+  let result;
+  try {
+    const invite = await client.query(
+      `SELECT 1 FROM auth_invites
+       WHERE email = $1 AND revoked_at IS NULL
+       FOR SHARE`,
+      [email],
+    );
+    if (!invite.rows[0]) {
+      throw new Error("Сначала добавьте активный инвайт для этого email");
+    }
+    await client.query(
+      "DELETE FROM auth_magic_links WHERE email = $1 AND used_at IS NULL",
+      [email],
+    );
+    result = await client.query(
+      `INSERT INTO auth_magic_links (token_hash, email, expires_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP + ($3 * INTERVAL '1 minute'))
+       RETURNING expires_at AS "expiresAt"`,
+      [hash, email, options.minutes],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
+  const magicLink = new URL("/api/v1/auth/verify", origin);
+  magicLink.searchParams.set("token", token);
+  const payload = {
+    email,
+    expiresAt: result.rows[0].expiresAt,
+    magicLink: magicLink.toString(),
+  };
+  if (options.json) console.log(JSON.stringify(payload, null, 2));
+  else {
+    console.log(`Одноразовая ссылка для ${email} (${options.minutes} мин):`);
+    console.log(payload.magicLink);
+    console.log("Отправьте её лично приглашённому; повторно использовать ссылку нельзя.");
+  }
 }
 
 async function removeInvite(client, email, options) {
@@ -197,7 +281,7 @@ async function main() {
     console.log(HELP);
     return;
   }
-  if (!new Set(["add", "remove", "list", "check"]).has(command)) {
+  if (!new Set(["add", "link", "remove", "list", "check"]).has(command)) {
     throw new Error(`Неизвестная команда: ${command}`);
   }
 
@@ -210,6 +294,9 @@ async function main() {
   try {
     await ensureInviteSchema(client);
     if (command === "add") await addInvite(client, requireEmail(positional), options);
+    else if (command === "link") {
+      await createMagicLink(client, requireEmail(positional), options);
+    }
     else if (command === "remove") {
       await removeInvite(client, requireEmail(positional), options);
     } else if (command === "list") {

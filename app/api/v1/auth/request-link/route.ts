@@ -48,7 +48,10 @@ export async function POST(request: Request) {
     }
 
     if (!emailDeliveryConfigured()) {
-      return NextResponse.json({ error: "email_unavailable" }, { status: 503 });
+      return NextResponse.json(
+        { error: "manual_invite_required" },
+        { status: 503 },
+      );
     }
 
     if (!(await invitedEmail(email))) {

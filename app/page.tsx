@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { GardenApp } from "./components/GardenApp";
+import { emailDeliveryConfigured } from "./lib/email";
 import { currentGardenUser } from "./lib/server-auth";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export default async function Home() {
       userName={user?.fullName?.split(" ")[0] ?? user?.displayName ?? "Гость"}
       userEmail={user?.email ?? null}
       isPreview={!user}
+      emailDeliveryEnabled={emailDeliveryConfigured()}
     />
   );
 }

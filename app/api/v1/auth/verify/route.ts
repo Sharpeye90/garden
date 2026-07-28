@@ -60,7 +60,12 @@ export async function GET(request: Request) {
 }
 
 function redirectWithStatus(request: Request, status: string) {
-  const target = new URL("/", request.url);
+  let target: URL;
+  try {
+    target = new URL("/", process.env.GARDEN_APP_URL?.trim() || request.url);
+  } catch {
+    target = new URL("/", request.url);
+  }
   target.searchParams.set("auth", status);
   return NextResponse.redirect(target);
 }

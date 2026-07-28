@@ -54,6 +54,7 @@ type GardenAppProps = {
   userName: string;
   userEmail: string | null;
   isPreview: boolean;
+  emailDeliveryEnabled: boolean;
 };
 
 const NAV_ITEMS: Array<{ id: ViewId; label: string; short: string }> = [
@@ -161,7 +162,12 @@ function StatusPill({
   return <span className={`status-pill status-${tone}`}>{children}</span>;
 }
 
-export function GardenApp({ userName, userEmail, isPreview }: GardenAppProps) {
+export function GardenApp({
+  userName,
+  userEmail,
+  isPreview,
+  emailDeliveryEnabled,
+}: GardenAppProps) {
   const [view, setView] = useState<ViewId>("today");
   const [state, setState] = useState<GardenState>(INITIAL_STATE);
   const [selectedDate, setSelectedDate] = useState(dateKey);
@@ -1045,6 +1051,7 @@ export function GardenApp({ userName, userEmail, isPreview }: GardenAppProps) {
           userName={userName}
           userEmail={userEmail}
           isPreview={isPreview}
+          emailDeliveryEnabled={emailDeliveryEnabled}
           onClose={() => setAccountOpen(false)}
         />
       )}
@@ -1580,11 +1587,13 @@ function AccountPanel({
   userName,
   userEmail,
   isPreview,
+  emailDeliveryEnabled,
   onClose,
 }: {
   userName: string;
   userEmail: string | null;
   isPreview: boolean;
+  emailDeliveryEnabled: boolean;
   onClose: () => void;
 }) {
   const [email, setEmail] = useState("");
@@ -1625,6 +1634,8 @@ function AccountPanel({
             ? "Слишком много запросов. Попробуйте через 15 минут."
             : payload.error === "email_unavailable"
               ? "Почтовая доставка ещё не подключена. Демо остаётся доступно без входа."
+              : payload.error === "manual_invite_required"
+                ? "Вход доступен по персональной ссылке от организатора пилота."
               : "Вход сейчас недоступен. Попробуйте чуть позже.",
       );
     } catch {
@@ -1649,12 +1660,12 @@ function AccountPanel({
         <div className="drawer-head">
           <div>
             <span className="account-symbol">{userName.slice(0, 1).toUpperCase()}</span>
-            <div><p className="eyebrow">Личный сад</p><h2>{isPreview ? "Войти без пароля" : userName}</h2></div>
+            <div><p className="eyebrow">Личный сад</p><h2>{isPreview ? emailDeliveryEnabled ? "Войти без пароля" : "Войти по приглашению" : userName}</h2></div>
           </div>
           <button onClick={onClose} aria-label="Закрыть">×</button>
         </div>
 
-        {isPreview ? (
+        {isPreview && emailDeliveryEnabled ? (
           <>
             <section className="account-intro">
               <h3>Сохраните сад между устройствами</h3>
@@ -1677,6 +1688,21 @@ function AccountPanel({
             </form>
             {message && <p className={`auth-message ${status}`}>{message}</p>}
             <p className="auth-privacy">Точные координаты не сохраняются: погодная точка округляется примерно до 5 км.</p>
+          </>
+        ) : isPreview ? (
+          <>
+            <section className="account-intro manual-invite-card">
+              <span className="manual-link-symbol">↗</span>
+              <div>
+                <h3>Получите персональную ссылку</h3>
+                <p>Организатор пилота создаёт одноразовую ссылку и отправляет её вам лично. Email и пароль вводить не нужно.</p>
+              </div>
+            </section>
+            <div className="manual-invite-steps">
+              <p><span>1</span> Сообщите организатору email, на который будет записан сад.</p>
+              <p><span>2</span> Откройте полученную ссылку в этом браузере в течение 15 минут.</p>
+            </div>
+            <p className="auth-privacy">Ссылка работает один раз. После входа защищённая сессия сохранится на 30 дней.</p>
           </>
         ) : (
           <>
