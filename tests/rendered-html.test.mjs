@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
 
@@ -77,6 +79,32 @@ test("calendar and geolocation use real dates and rounded weather points", async
   assert.match(app, /date-switcher/);
   assert.match(dates, /Europe\/Moscow/);
   assert.match(storage, /task\.scheduledFor \?\?/);
+});
+
+test("invite CLI manages the database allowlist without a rebuild", async () => {
+  const [database, auth, requestLink, cli, dockerfile] = await Promise.all([
+    readFile(new URL("db/index.ts", root), "utf8"),
+    readFile(new URL("app/lib/auth.ts", root), "utf8"),
+    readFile(new URL("app/api/v1/auth/request-link/route.ts", root), "utf8"),
+    readFile(new URL("scripts/invites.mjs", root), "utf8"),
+    readFile(new URL("Dockerfile", root), "utf8"),
+  ]);
+
+  assert.match(database, /CREATE TABLE IF NOT EXISTS auth_invites/);
+  assert.match(auth, /FROM auth_invites/);
+  assert.match(requestLink, /await invitedEmail\(email\)/);
+  assert.match(cli, /addInvite/);
+  assert.match(cli, /removeInvite/);
+  assert.match(cli, /--logout/);
+  assert.match(dockerfile, /dist\/standalone\/scripts/);
+
+  const help = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("scripts/invites.mjs", root)), "--help"],
+    { encoding: "utf8" },
+  );
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /npm run invites -- add EMAIL/);
 });
 
 test("plant placement connects catalog, plan, care tasks and journal", async () => {

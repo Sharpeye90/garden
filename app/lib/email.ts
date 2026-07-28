@@ -3,6 +3,12 @@ type MagicLinkEmail = {
   magicLink: string;
 };
 
+export function emailDeliveryConfigured(): boolean {
+  return Boolean(
+    process.env.RESEND_API_KEY?.trim() && process.env.GARDEN_EMAIL_FROM?.trim(),
+  );
+}
+
 export async function sendMagicLinkEmail({
   email,
   magicLink,

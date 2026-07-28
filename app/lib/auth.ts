@@ -65,16 +65,15 @@ export async function requestFingerprint(): Promise<string | null> {
   return createHmac("sha256", secret).update(address).digest("hex");
 }
 
-export function invitedEmail(email: string): boolean {
-  const configured = process.env.GARDEN_INVITE_EMAILS?.trim();
-  if (!configured) return true;
-  const invited = new Set(
-    configured
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
+export async function invitedEmail(email: string): Promise<boolean> {
+  await ensureSchema();
+  const result = await getPool().query(
+    `SELECT 1
+     FROM auth_invites
+     WHERE email = $1 AND revoked_at IS NULL`,
+    [email],
   );
-  return invited.has(email);
+  return Boolean(result.rows[0]);
 }
 
 export function displayNameFromEmail(email: string): string {

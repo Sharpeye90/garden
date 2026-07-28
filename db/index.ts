@@ -82,6 +82,18 @@ export async function ensureSchema(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS auth_sessions_user_expires_idx
         ON auth_sessions (user_key, expires_at DESC);
+
+      CREATE TABLE IF NOT EXISTS auth_invites (
+        email TEXT PRIMARY KEY,
+        note TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        revoked_at TIMESTAMPTZ
+      );
+
+      CREATE INDEX IF NOT EXISTS auth_invites_active_created_idx
+        ON auth_invites (created_at DESC)
+        WHERE revoked_at IS NULL;
     `)
     .then(() => undefined)
     .catch((error) => {

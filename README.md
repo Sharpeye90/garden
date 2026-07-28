@@ -37,8 +37,22 @@ npm run dev
 строку подключения к PostgreSQL.
 
 Для входа по email скопируйте переменные из `.env.example`: нужны адрес
-приложения, отправитель и ключ Resend. `GARDEN_INVITE_EMAILS` ограничивает вход
-приглашёнными адресами; без него запросить ссылку может любой пользователь.
+приложения, отправитель и ключ Resend. Доступ закрыт по умолчанию и управляется
+инвайтами в PostgreSQL:
+
+```bash
+npm run invites -- add gardener@example.ru --note "Осенний пилот"
+npm run invites -- list
+npm run invites -- check gardener@example.ru
+npm run invites -- remove gardener@example.ru
+npm run invites -- remove gardener@example.ru --logout
+```
+
+Команды читают `DATABASE_URL` из окружения или локального `.env`. `remove`
+запрещает новые входы и отзывает ещё не использованные ссылки; `--logout`
+дополнительно завершает активные сессии. В рабочем контейнере CLI находится в
+`dist/standalone/scripts/invites.mjs`, поэтому изменение списка не требует
+пересборки приложения.
 
 ## Проверки
 

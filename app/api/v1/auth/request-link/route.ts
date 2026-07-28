@@ -6,7 +6,10 @@ import {
   requestFingerprint,
   tokenHash,
 } from "@/app/lib/auth";
-import { sendMagicLinkEmail } from "@/app/lib/email";
+import {
+  emailDeliveryConfigured,
+  sendMagicLinkEmail,
+} from "@/app/lib/email";
 import { ensureSchema, getPool } from "@/db";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +47,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "rate_limited" }, { status: 429 });
     }
 
-    if (!invitedEmail(email)) {
+    if (!emailDeliveryConfigured()) {
+      return NextResponse.json({ error: "email_unavailable" }, { status: 503 });
+    }
+
+    if (!(await invitedEmail(email))) {
       return NextResponse.json({ status: "sent", expiresIn: 900 }, { status: 202 });
     }
 
@@ -77,7 +84,8 @@ export async function POST(request: Request) {
         );
       }
       await getPool().query("DELETE FROM auth_magic_links WHERE token_hash = $1", [hash]);
-      return NextResponse.json({ error: "email_unavailable" }, { status: 503 });
+      console.error("Magic link email provider rejected delivery");
+      return NextResponse.json({ status: "sent", expiresIn: 900 }, { status: 202 });
     }
 
     return NextResponse.json({ status: "sent", expiresIn: 900 }, { status: 202 });

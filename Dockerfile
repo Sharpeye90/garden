@@ -17,6 +17,7 @@ WORKDIR /app
 RUN groupadd --system garden && useradd --system --gid garden garden
 
 COPY --from=build --chown=garden:garden /app/dist ./dist
+COPY --from=build --chown=garden:garden /app/scripts ./dist/standalone/scripts
 
 USER garden
 EXPOSE 3000
