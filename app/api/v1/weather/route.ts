@@ -41,7 +41,7 @@ export async function GET(request: Request) {
       "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m",
     daily: "precipitation_probability_max,temperature_2m_max,temperature_2m_min",
     timezone: "Europe/Moscow",
-    forecast_days: "7",
+    forecast_days: "16",
   });
 
   try {

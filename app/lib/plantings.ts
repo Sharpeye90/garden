@@ -6,6 +6,7 @@ import type {
   PlanObject,
   PlanObjectType,
 } from "../types";
+import { dateKey } from "./dates";
 
 const COMPATIBLE_TARGETS: Record<Plant["kind"], PlanObjectType[]> = {
   Овощи: ["bed", "greenhouse"],
@@ -69,6 +70,7 @@ export function createCareTask(
 ): GardenTask {
   const common = {
     id: `care-${planting.id}`,
+    scheduledFor: dateKey(),
     zone,
     window: "сегодня–завтра",
     priority: "normal" as const,

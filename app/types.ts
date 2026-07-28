@@ -4,6 +4,7 @@ export type TaskStatus = "todo" | "partial" | "done" | "skipped";
 
 export type GardenTask = {
   id: string;
+  scheduledFor: string;
   title: string;
   zone: string;
   time: string;
@@ -86,8 +87,18 @@ export type JournalEntry = {
   plantingId?: string;
 };
 
+export type GardenLocation = {
+  latitude: number;
+  longitude: number;
+  label: string;
+  region: string;
+  source: "default" | "device";
+  updatedAt?: string;
+};
+
 export type GardenState = {
   revision: number;
+  location: GardenLocation;
   tasks: GardenTask[];
   planObjects: PlanObject[];
   plants: Plant[];

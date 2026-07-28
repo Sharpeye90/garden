@@ -332,7 +332,18 @@ textarea:focus-visible {
 
 .location-block {
   gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 11px;
+  transition: 160ms ease;
 }
+
+.location-block:hover { background: rgba(49, 91, 67, 0.06); }
+.location-block:disabled { cursor: wait; opacity: 0.7; }
 
 .location-dot {
   width: 9px;
@@ -363,6 +374,8 @@ textarea:focus-visible {
 
 .demo-reset { border: 0; background: transparent; color: var(--muted); padding: 6px 0; font-size: 9px; font-weight: 700; cursor: pointer; }
 .demo-reset:hover { color: var(--green); }
+.sign-in-link { border: 0; border-radius: 9px; background: var(--green); padding: 9px 14px; color: white; font-size: 10px; font-weight: 800; cursor: pointer; }
+.sign-in-link:hover { background: #254a35; }
 
 .sync-state {
   display: inline-flex;
@@ -422,9 +435,17 @@ textarea:focus-visible {
 
 .welcome-row,
 .page-title-row {
+  display: flex;
   justify-content: space-between;
   gap: 28px;
 }
+
+.welcome-actions { display: flex; align-items: center; gap: 12px; }
+.date-switcher { display: inline-grid; grid-template-columns: 34px auto 34px; min-height: 40px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 11px; background: rgba(255, 254, 249, 0.54); }
+.date-switcher button { border: 0; border-right: 1px solid var(--line); background: transparent; padding: 0 10px; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.date-switcher button:last-child { border-right: 0; }
+.date-switcher button:hover { background: var(--green-soft); color: var(--green); }
+.date-switcher .date-today.active { color: var(--green); }
 
 h1,
 h2,
@@ -502,6 +523,7 @@ h3 {
   padding: 22px 24px;
   box-shadow: 0 12px 40px rgba(56, 70, 59, 0.05);
 }
+.weather-card.weather-loading { opacity: 0.72; }
 
 .weather-now { gap: 15px; }
 
@@ -818,6 +840,23 @@ h3 {
 .drawer-head .spark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: var(--green); color: #f1e6bd; }
 .drawer-head h2 { font-size: 25px; }
 .drawer-head button { border: 0; background: transparent; color: var(--muted); font-size: 26px; cursor: pointer; }
+.account-symbol { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--green); color: white; font-family: var(--serif); font-size: 20px; }
+.account-intro { margin-top: 28px; border: 1px solid var(--line); border-radius: 16px; background: rgba(251, 250, 245, 0.74); padding: 22px; }
+.account-intro h3 { margin-bottom: 8px; font-family: var(--serif); font-size: 23px; font-weight: 500; }
+.account-intro p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.auth-form { display: grid; gap: 10px; margin-top: 24px; }
+.auth-form label { color: var(--muted); font-size: 10px; font-weight: 700; }
+.auth-form input { width: 100%; height: 46px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--card); padding: 0 14px; color: var(--ink); font: inherit; }
+.auth-form input:focus { border-color: var(--green); outline: 3px solid rgba(49, 91, 67, 0.1); }
+.auth-form .primary-button { margin-top: 4px; }
+.auth-message { margin: 14px 0 0; border-radius: 11px; padding: 13px 14px; font-size: 10px; line-height: 1.55; }
+.auth-message.sent { background: var(--green-soft); color: var(--green); }
+.auth-message.error { background: #f2dfdc; color: #87504a; }
+.auth-privacy { margin: 20px 0 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.signed-in-card { display: flex; align-items: center; gap: 13px; }
+.signed-in-card strong { display: block; font-size: 12px; }
+.signed-in-card p { margin-top: 4px; }
+.sign-out-button { width: 100%; margin-top: 24px; }
 .analysis-status { gap: 13px; margin: 20px 0; border-radius: 13px; background: var(--green-soft); padding: 14px; }
 .analysis-pulse { width: 12px; height: 12px; border: 3px solid #aec2a7; border-radius: 50%; background: var(--green); }
 .analysis-status strong { font-size: 11px; }
@@ -863,6 +902,7 @@ h3 {
   .page-content { padding: 32px 18px 60px; }
   .welcome-row,
   .page-title-row { align-items: flex-start; flex-direction: column; }
+  .welcome-actions { width: 100%; flex-wrap: wrap; }
   .today-grid { grid-template-columns: 1fr; }
   .focus-column { grid-row: 1; }
   .focus-card { display: none; }
@@ -903,6 +943,13 @@ h3 {
   h1 { font-size: 40px; }
   .assistant-button { width: 38px; justify-content: center; padding: 0; font-size: 0; }
   .assistant-button .spark { font-size: 16px; }
+  .topbar-actions { gap: 8px; }
+  .demo-reset { display: none; }
+  .sign-in-link { padding: 8px 10px; }
+  .location-block { max-width: 58vw; padding-left: 0; }
+  .location-block strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .welcome-actions { display: grid; grid-template-columns: 1fr; }
+  .date-switcher { width: 100%; grid-template-columns: 40px 1fr 40px; }
   .weather-card { padding: 18px; }
   .task-card { padding: 15px 13px; }
   .assistant-summary { grid-template-columns: 42px 1fr; padding: 16px; }

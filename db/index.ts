@@ -56,6 +56,32 @@ export async function ensureSchema(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS assistant_questions_status_created_idx
         ON assistant_questions (status, created_at);
+
+      CREATE TABLE IF NOT EXISTS auth_magic_links (
+        token_hash TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        requested_ip_hash TEXT,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS auth_magic_links_email_created_idx
+        ON auth_magic_links (email, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS auth_magic_links_ip_created_idx
+        ON auth_magic_links (requested_ip_hash, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS auth_sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_key TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS auth_sessions_user_expires_idx
+        ON auth_sessions (user_key, expires_at DESC);
     `)
     .then(() => undefined)
     .catch((error) => {

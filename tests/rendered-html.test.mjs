@@ -35,20 +35,48 @@ test("product shell replaces every starter marker", async () => {
 });
 
 test("server contracts cover health, weather, state and assistant queue", async () => {
-  const [health, weather, state, assistant] = await Promise.all([
+  const [health, weather, state, assistant, requestLink, verify, serverAuth] = await Promise.all([
     readFile(new URL("app/api/v1/health/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/weather/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/state/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/assistant/questions/route.ts", root), "utf8"),
+    readFile(new URL("app/api/v1/auth/request-link/route.ts", root), "utf8"),
+    readFile(new URL("app/api/v1/auth/verify/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/server-auth.ts", root), "utf8"),
   ]);
 
   assert.match(health, /garden-rhythm/);
   assert.match(health, /database/);
   assert.match(weather, /open-meteo\.com/);
+  assert.match(weather, /forecast_days: "16"/);
   assert.match(state, /revision_conflict/);
   assert.match(state, /idempotency_keys/);
   assert.match(state, /FOR UPDATE/);
   assert.match(assistant, /status: "queued"/);
+  assert.match(requestLink, /INTERVAL '15 minutes'/);
+  assert.match(requestLink, /rate_limited/);
+  assert.match(verify, /SESSION_COOKIE/);
+  assert.match(verify, /used_at IS NULL/);
+  assert.match(serverAuth, /getSessionUser/);
+});
+
+test("calendar and geolocation use real dates and rounded weather points", async () => {
+  const [types, data, app, dates, storage] = await Promise.all([
+    readFile(new URL("app/types.ts", root), "utf8"),
+    readFile(new URL("app/data.ts", root), "utf8"),
+    readFile(new URL("app/components/GardenApp.tsx", root), "utf8"),
+    readFile(new URL("app/lib/dates.ts", root), "utf8"),
+    readFile(new URL("app/lib/storage.ts", root), "utf8"),
+  ]);
+
+  assert.match(types, /scheduledFor: string/);
+  assert.match(types, /source: "default" \| "device"/);
+  assert.match(data, /scheduledFor: dateKey\(\)/);
+  assert.match(app, /navigator\.geolocation\.getCurrentPosition/);
+  assert.match(app, /roundedWeatherCoordinate/);
+  assert.match(app, /date-switcher/);
+  assert.match(dates, /Europe\/Moscow/);
+  assert.match(storage, /task\.scheduledFor \?\?/);
 });
 
 test("plant placement connects catalog, plan, care tasks and journal", async () => {

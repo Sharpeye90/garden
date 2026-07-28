@@ -1,4 +1,4 @@
-const CACHE_NAME = "garden-rhythm-alpha-v1";
+const CACHE_NAME = "garden-rhythm-alpha-v2";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.png"];
 
 self.addEventListener("install", (event) => {

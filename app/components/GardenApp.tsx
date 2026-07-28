@@ -12,6 +12,14 @@ import {
 import { CATALOG, INITIAL_STATE, MONTHS, PLAN_COLORS } from "../data";
 import { completeTask, partiallyCompleteTask, updatePlanObject } from "../lib/domain";
 import {
+  dateKey,
+  dayDistance,
+  formatLongDate,
+  formatShortDate,
+  relativeDayLabel,
+  shiftDateKey,
+} from "../lib/dates";
+import {
   createCareTask,
   findPlacementTarget,
   placementHintForPlant,
@@ -19,8 +27,14 @@ import {
   requiresPlanObject,
   zoneForPlacement,
 } from "../lib/plantings";
-import { readLocalState, syncRemoteState, writeLocalState } from "../lib/storage";
+import {
+  readLocalState,
+  readRemoteState,
+  syncRemoteState,
+  writeLocalState,
+} from "../lib/storage";
 import type {
+  GardenLocation,
   GardenState,
   GardenTask,
   PlanObject,
@@ -38,6 +52,7 @@ const GardenCanvas = dynamic(() => import("./GardenCanvas"), {
 
 type GardenAppProps = {
   userName: string;
+  userEmail: string | null;
   isPreview: boolean;
 };
 
@@ -70,6 +85,39 @@ const WEATHER_FALLBACK = {
   wind: 2.8,
   description: "Переменная облачность",
 };
+
+type WeatherDay = {
+  date: string;
+  precipitation: number;
+  temperatureMax: number;
+  temperatureMin: number;
+};
+
+type WeatherState = {
+  current: typeof WEATHER_FALLBACK;
+  daily: WeatherDay[];
+  attribution: string | null;
+};
+
+const DEFAULT_WEATHER: WeatherState = {
+  current: WEATHER_FALLBACK,
+  daily: [],
+  attribution: null,
+};
+
+function roundedWeatherCoordinate(value: number): number {
+  return Math.round(value * 20) / 20;
+}
+
+function regionForCoordinates(latitude: number, longitude: number): string {
+  if (latitude >= 54.8 && latitude < 56.15 && longitude >= 35 && longitude <= 41) {
+    return "Московская область";
+  }
+  if (latitude >= 55.6 && latitude <= 59 && longitude >= 32 && longitude <= 39.6) {
+    return "Тверская область";
+  }
+  return "Вне региона пилота";
+}
 
 function plantCountLabel(quantity: number): string {
   const remainder100 = quantity % 100;
@@ -113,9 +161,10 @@ function StatusPill({
   return <span className={`status-pill status-${tone}`}>{children}</span>;
 }
 
-export function GardenApp({ userName, isPreview }: GardenAppProps) {
+export function GardenApp({ userName, userEmail, isPreview }: GardenAppProps) {
   const [view, setView] = useState<ViewId>("today");
   const [state, setState] = useState<GardenState>(INITIAL_STATE);
+  const [selectedDate, setSelectedDate] = useState(dateKey);
   const [hydrated, setHydrated] = useState(false);
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -138,13 +187,28 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
   const [plantFilter, setPlantFilter] = useState<"Все" | PlantKind>("Все");
   const [journalDraft, setJournalDraft] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [weather, setWeather] = useState(WEATHER_FALLBACK);
+  const [weather, setWeather] = useState<WeatherState>(DEFAULT_WEATHER);
+  const [weatherStatus, setWeatherStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [locationStatus, setLocationStatus] = useState<
+    "idle" | "requesting" | "denied" | "unsupported"
+  >("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    readLocalState()
+    const loadState = async () => {
+      const [local, previewLocal, remote] = await Promise.all([
+        readLocalState(userEmail),
+        userEmail ? readLocalState(null) : Promise.resolve(null),
+        isPreview ? Promise.resolve(null) : readRemoteState(),
+      ]);
+      return remote ?? local ?? previewLocal;
+    };
+    loadState()
       .then((saved) => {
         if (!cancelled && saved) setState(saved);
       })
@@ -154,7 +218,7 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isPreview, userEmail]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -177,23 +241,51 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
   }, []);
 
   useEffect(() => {
-    fetch("/api/v1/weather?latitude=56.35&longitude=35.93")
+    const params = new URLSearchParams({
+      latitude: String(state.location.latitude),
+      longitude: String(state.location.longitude),
+    });
+    fetch(`/api/v1/weather?${params}`)
       .then((response) =>
         response.ok
-          ? (response.json() as Promise<{ current?: typeof WEATHER_FALLBACK }>)
+          ? (response.json() as Promise<{
+              current?: typeof WEATHER_FALLBACK;
+              daily?: {
+                time: string[];
+                precipitation_probability_max: number[];
+                temperature_2m_max: number[];
+                temperature_2m_min: number[];
+              };
+              attribution?: string;
+            }>)
           : null,
       )
-      .then((payload: { current?: typeof WEATHER_FALLBACK } | null) => {
-        if (payload?.current) setWeather(payload.current);
+      .then((payload) => {
+        if (!payload?.current) {
+          setWeatherStatus("error");
+          return;
+        }
+        setWeather({
+          current: payload.current,
+          daily: (payload.daily?.time ?? []).map((date, index) => ({
+            date,
+            precipitation:
+              payload.daily?.precipitation_probability_max[index] ?? 0,
+            temperatureMax: payload.daily?.temperature_2m_max[index] ?? 0,
+            temperatureMin: payload.daily?.temperature_2m_min[index] ?? 0,
+          })),
+          attribution: payload.attribution ?? null,
+        });
+        setWeatherStatus("ready");
       })
-      .catch(() => undefined);
-  }, []);
+      .catch(() => setWeatherStatus("error"));
+  }, [state.location.latitude, state.location.longitude]);
 
   useEffect(() => {
     if (!hydrated) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      await writeLocalState(state);
+      await writeLocalState(state, userEmail);
       if (isPreview) {
         setSyncStatus("saved");
         return;
@@ -208,13 +300,31 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [state, hydrated, online, isPreview]);
+  }, [state, hydrated, online, isPreview, userEmail]);
 
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 2800);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const authStatus = url.searchParams.get("auth");
+    if (!authStatus) return;
+    const timer = window.setTimeout(() => {
+      setToast(
+        authStatus === "success"
+          ? "Вход выполнен — сад теперь сохраняется в вашем аккаунте"
+          : authStatus === "expired"
+            ? "Ссылка устарела или уже использована — запросите новую"
+            : "Не удалось подтвердить вход — запросите новую ссылку",
+      );
+    }, 0);
+    url.searchParams.delete("auth");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -227,12 +337,72 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     });
   }, []);
 
-  const visibleTasks = state.tasks.filter(
+  const dayTasks = state.tasks.filter((task) => task.scheduledFor === selectedDate);
+  const visibleTasks = dayTasks.filter(
     (task) => task.status !== "done" && task.status !== "skipped",
   );
-  const selectedTaskData = state.tasks.find((task) => task.id === selectedTask);
-  const finishedCount = state.tasks.filter((task) => task.status === "done").length;
-  const progress = Math.round((finishedCount / Math.max(1, state.tasks.length)) * 100);
+  const selectedTaskData =
+    visibleTasks.find((task) => task.id === selectedTask) ?? visibleTasks[0] ?? null;
+  const finishedCount = dayTasks.filter((task) => task.status === "done").length;
+  const progress = Math.round((finishedCount / Math.max(1, dayTasks.length)) * 100);
+  const todayTaskCount = state.tasks.filter(
+    (task) =>
+      task.scheduledFor === dateKey() &&
+      task.status !== "done" &&
+      task.status !== "skipped",
+  ).length;
+  const selectedWeatherDay = weather.daily.find((day) => day.date === selectedDate) ?? null;
+
+  const selectDate = (value: string) => {
+    const distance = dayDistance(value);
+    if (distance < -14 || distance > 15) {
+      setToast("Доступны две прошедшие недели и прогноз на 16 дней");
+      return;
+    }
+    setSelectedDate(value);
+    setView("today");
+  };
+
+  const requestLocation = () => {
+    if (!("geolocation" in navigator)) {
+      setLocationStatus("unsupported");
+      setToast("Это устройство не поддерживает определение местоположения");
+      return;
+    }
+    setLocationStatus("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = roundedWeatherCoordinate(position.coords.latitude);
+        const longitude = roundedWeatherCoordinate(position.coords.longitude);
+        const region = regionForCoordinates(latitude, longitude);
+        const location: GardenLocation = {
+          latitude,
+          longitude,
+          label: "Моя погодная точка",
+          region,
+          source: "device",
+          updatedAt: new Date().toISOString(),
+        };
+        setWeatherStatus("loading");
+        updateState((current) => ({ ...current, location }));
+        setLocationStatus("idle");
+        setToast(
+          region === "Вне региона пилота"
+            ? "Точка сохранена, но погодные правила пилота здесь пока не работают"
+            : "Местоположение обновлено; загружаем прогноз",
+        );
+      },
+      (error) => {
+        setLocationStatus(error.code === error.PERMISSION_DENIED ? "denied" : "idle");
+        setToast(
+          error.code === error.PERMISSION_DENIED
+            ? "Доступ к геопозиции не разрешён — оставили прежнюю точку"
+            : "Не удалось определить место — попробуйте ещё раз на открытом участке",
+        );
+      },
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 3_600_000 },
+    );
+  };
 
   const taskAction = (
     taskId: string,
@@ -249,13 +419,18 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
           if (action === "done") return completeTask(task);
           if (action === "partial") return partiallyCompleteTask(task);
           if (action === "skip") return { ...task, status: "skipped" };
-          return { ...task, window: "завтра · пересчитано", priority: "low" };
+          return {
+            ...task,
+            scheduledFor: shiftDateKey(task.scheduledFor, 1),
+            window: "перенесено · пересчитать утром",
+            priority: "low",
+          };
         }),
         journal: shouldJournal
           ? [
               {
                 id: crypto.randomUUID(),
-                date: "сегодня",
+                date: formatShortDate(sourceTask.scheduledFor),
                 title: sourceTask.title,
                 note: "Выполнено из списка дел — связь с посадкой сохранена.",
                 zone: sourceTask.zone,
@@ -535,7 +710,7 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
       journal: [
         {
           id: crypto.randomUUID(),
-          date: "сегодня",
+          date: formatShortDate(dateKey()),
           title: text,
           note: "Личное наблюдение",
           zone: "Участок",
@@ -564,7 +739,7 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
       journal: [
         {
           id: crypto.randomUUID(),
-          date: "сегодня",
+          date: formatShortDate(dateKey()),
           title,
           note: "Наблюдение учтено в календаре цветения.",
           zone: plant.zone,
@@ -608,6 +783,7 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
     setSelectedPlantingId(null);
     setPendingPlantId(null);
     setPlanHistory([]);
+    setSelectedDate(dateKey());
     setView("today");
     setToast("Демосад возвращён в исходное состояние");
   };
@@ -634,8 +810,8 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
             >
               <span className="nav-index">0{index + 1}</span>
               {item.label}
-              {item.id === "today" && visibleTasks.length > 0 && (
-                <span className="nav-count">{visibleTasks.length}</span>
+              {item.id === "today" && todayTaskCount > 0 && (
+                <span className="nav-count">{todayTaskCount}</span>
               )}
             </button>
           ))}
@@ -649,10 +825,10 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
           </div>
           <p>Сейчас в саду</p>
           <strong>Пик летнего ухода</strong>
-          <small>27 июля · 5-я неделя лета</small>
+          <small>{formatShortDate(dateKey())} · календарь обновлён</small>
         </div>
 
-        <button className="profile-card" onClick={() => setAssistantOpen(true)}>
+        <button className="profile-card" onClick={() => setAccountOpen(true)}>
           <span className="avatar">{userName.slice(0, 1).toUpperCase()}</span>
           <span>
             <strong>{userName}</strong>
@@ -664,18 +840,30 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
 
       <main className="main-area">
         <header className="topbar">
-          <div className="location-block">
+          <button
+            className="location-block"
+            onClick={requestLocation}
+            disabled={locationStatus === "requesting"}
+            title={`${state.location.latitude.toFixed(2)}, ${state.location.longitude.toFixed(2)}`}
+          >
             <span className="location-dot" />
             <span>
-              <strong>Завидово</strong>
-              <small>Тверская область · точка округлена</small>
+              <strong>
+                {locationStatus === "requesting" ? "Определяем место…" : state.location.label}
+              </strong>
+              <small>{state.location.region} · точка округлена · изменить</small>
             </span>
-          </div>
+          </button>
           <div className="topbar-actions">
             {isPreview && (
-              <button className="demo-reset" onClick={resetDemo}>
-                Сбросить демо
-              </button>
+              <>
+                <button className="sign-in-link" onClick={() => setAccountOpen(true)}>
+                  Войти
+                </button>
+                <button className="demo-reset" onClick={resetDemo}>
+                  Сбросить демо
+                </button>
+              </>
             )}
             <span className={`sync-state ${syncStatus}`}>
               <i />
@@ -702,7 +890,10 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
           {view === "today" && (
             <TodayView
               userName={userName}
-              weather={weather}
+              selectedDate={selectedDate}
+              weather={weather.current}
+              weatherDay={selectedWeatherDay}
+              weatherStatus={weatherStatus}
               progress={progress}
               tasks={visibleTasks}
               plantingCount={state.plantings.length}
@@ -723,6 +914,9 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
                 setView("plan");
               }}
               onOpenBloom={() => setView("bloom")}
+              onPreviousDay={() => selectDate(shiftDateKey(selectedDate, -1))}
+              onNextDay={() => selectDate(shiftDateKey(selectedDate, 1))}
+              onToday={() => selectDate(dateKey())}
             />
           )}
 
@@ -846,6 +1040,15 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
         />
       )}
 
+      {accountOpen && (
+        <AccountPanel
+          userName={userName}
+          userEmail={userEmail}
+          isPreview={isPreview}
+          onClose={() => setAccountOpen(false)}
+        />
+      )}
+
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
@@ -853,7 +1056,10 @@ export function GardenApp({ userName, isPreview }: GardenAppProps) {
 
 function TodayView({
   userName,
+  selectedDate,
   weather,
+  weatherDay,
+  weatherStatus,
   progress,
   tasks,
   plantingCount,
@@ -863,9 +1069,15 @@ function TodayView({
   onTaskAction,
   onOpenPlan,
   onOpenBloom,
+  onPreviousDay,
+  onNextDay,
+  onToday,
 }: {
   userName: string;
+  selectedDate: string;
   weather: typeof WEATHER_FALLBACK;
+  weatherDay: WeatherDay | null;
+  weatherStatus: "loading" | "ready" | "error";
   progress: number;
   tasks: GardenTask[];
   plantingCount: number;
@@ -878,36 +1090,78 @@ function TodayView({
   ) => void;
   onOpenPlan: (task: GardenTask) => void;
   onOpenBloom: () => void;
+  onPreviousDay: () => void;
+  onNextDay: () => void;
+  onToday: () => void;
 }) {
+  const isToday = dayDistance(selectedDate) === 0;
+  const dateLabel = relativeDayLabel(selectedDate);
+  const temperature = isToday
+    ? weather.temperature
+    : weatherDay
+      ? Math.round((weatherDay.temperatureMax + weatherDay.temperatureMin) / 2)
+      : weather.temperature;
+  const precipitation = weatherDay?.precipitation ?? weather.precipitation;
   return (
     <>
       <section className="welcome-row">
         <div>
-          <p className="eyebrow">Понедельник, 27 июля</p>
-          <h1>Доброе утро, {userName}</h1>
-          <p className="lead">Сегодня саду понадобится около 45 минут внимания.</p>
+          <p className="eyebrow">{formatLongDate(selectedDate)}</p>
+          <h1>{isToday ? `Доброе утро, ${userName}` : dateLabel}</h1>
+          <p className="lead">
+            {isToday
+              ? "Сегодня саду понадобится около 45 минут внимания."
+              : tasks.length > 0
+                ? "Работы и прогноз для выбранного дня."
+                : "Запланированных работ на этот день нет."}
+          </p>
         </div>
-        <button className="outline-button" onClick={onOpenBloom}>
-          Календарь цветения <span>→</span>
-        </button>
+        <div className="welcome-actions">
+          <div className="date-switcher" aria-label="Выбор дня">
+            <button onClick={onPreviousDay} aria-label="Предыдущий день">←</button>
+            <button className={!isToday ? "date-today" : "date-today active"} onClick={onToday}>
+              Сегодня
+            </button>
+            <button onClick={onNextDay} aria-label="Следующий день">→</button>
+          </div>
+          <button className="outline-button" onClick={onOpenBloom}>
+            Календарь цветения <span>→</span>
+          </button>
+        </div>
       </section>
 
-      <section className="weather-card">
+      <section className={`weather-card weather-${weatherStatus}`}>
         <div className="weather-now">
           <div className="sun-symbol" aria-hidden="true"><i /></div>
           <div>
-            <span className="temperature">+{Math.round(weather.temperature)}°</span>
-            <p>{weather.description}</p>
+            <span className="temperature">{temperature > 0 ? "+" : ""}{Math.round(temperature)}°</span>
+            <p>{isToday ? weather.description : weatherDay ? "Прогноз на день" : "Прогноз недоступен"}</p>
           </div>
         </div>
         <div className="weather-facts">
-          <div><span>Ощущается</span><strong>+{Math.round(weather.apparentTemperature)}°</strong></div>
-          <div><span>Дождь вечером</span><strong>{Math.round(weather.precipitation)}%</strong></div>
-          <div><span>Ветер</span><strong>{weather.wind.toFixed(1)} м/с</strong></div>
+          <div>
+            <span>{isToday ? "Ощущается" : "Диапазон"}</span>
+            <strong>{isToday ? `${weather.apparentTemperature > 0 ? "+" : ""}${Math.round(weather.apparentTemperature)}°` : weatherDay ? `${Math.round(weatherDay.temperatureMin)}…${Math.round(weatherDay.temperatureMax)}°` : "—"}</strong>
+          </div>
+          <div><span>Вероятность дождя</span><strong>{weatherDay ? `${Math.round(precipitation)}%` : isToday ? `${Math.round(precipitation)}%` : "—"}</strong></div>
+          <div><span>{isToday ? "Ветер" : "Горизонт"}</span><strong>{isToday ? `${weather.wind.toFixed(1)} м/с` : weatherDay ? "в прогнозе" : "нет данных"}</strong></div>
         </div>
         <div className="weather-note">
           <span className="note-mark">!</span>
-          <p><strong>Полив лучше закончить до 09:30.</strong><br />После 17:00 возможен кратковременный дождь.</p>
+          <p>
+            <strong>
+              {weatherStatus === "loading"
+                ? "Обновляем прогноз для погодной точки."
+                : weatherStatus === "error"
+                  ? "Погода временно недоступна."
+                  : isToday
+                    ? "Рекомендации учли сегодняшний прогноз."
+                    : weatherDay
+                      ? "Задачи показаны для выбранного дня."
+                      : "Для этой даты ещё нет прогноза."}
+            </strong>
+            <br />Погодная точка хранится с округлением примерно до 5 км.
+          </p>
         </div>
       </section>
 
@@ -1000,7 +1254,7 @@ function TodayView({
             <div>
               <p className="eyebrow">Ночной анализ</p>
               <h3>Сад выглядит устойчиво</h3>
-              <p>Проверено {russianCount(plantingCount, "посадка", "посадки", "посадок")}, {russianCount(zoneCount, "зона", "зоны", "зон")} и прогноз на 7 дней. Новых рисков не найдено.</p>
+              <p>Проверено {russianCount(plantingCount, "посадка", "посадки", "посадок")}, {russianCount(zoneCount, "зона", "зоны", "зон")} и прогноз до 16 дней. Новых рисков не найдено.</p>
             </div>
           </div>
         </aside>
@@ -1319,6 +1573,123 @@ function JournalView({ entries, draft, onDraft, onSubmit }: { entries: GardenSta
         </section>
       </div>
     </>
+  );
+}
+
+function AccountPanel({
+  userName,
+  userEmail,
+  isPreview,
+  onClose,
+}: {
+  userName: string;
+  userEmail: string | null;
+  isPreview: boolean;
+  onClose: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle",
+  );
+  const [message, setMessage] = useState("");
+
+  const requestLink = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!email.trim()) return;
+    setStatus("sending");
+    setMessage("");
+    try {
+      const response = await fetch("/api/v1/auth/request-link", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        developmentMagicLink?: string;
+      };
+      if (response.ok) {
+        if (payload.developmentMagicLink) {
+          window.location.assign(payload.developmentMagicLink);
+          return;
+        }
+        setStatus("sent");
+        setMessage("Проверьте почту. Ссылка действует 15 минут и открывает сад без пароля.");
+        return;
+      }
+      setStatus("error");
+      setMessage(
+        payload.error === "invalid_email"
+          ? "Проверьте написание email."
+          : payload.error === "rate_limited"
+            ? "Слишком много запросов. Попробуйте через 15 минут."
+            : payload.error === "email_unavailable"
+              ? "Почтовая доставка ещё не подключена. Демо остаётся доступно без входа."
+              : "Вход сейчас недоступен. Попробуйте чуть позже.",
+      );
+    } catch {
+      setStatus("error");
+      setMessage("Нет связи с сервером. Демо продолжает работать локально.");
+    }
+  };
+
+  const signOut = async () => {
+    await fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.location.assign("/");
+  };
+
+  return (
+    <div
+      className="drawer-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside className="assistant-drawer account-drawer" role="dialog" aria-modal="true" aria-label="Аккаунт">
+        <div className="drawer-head">
+          <div>
+            <span className="account-symbol">{userName.slice(0, 1).toUpperCase()}</span>
+            <div><p className="eyebrow">Личный сад</p><h2>{isPreview ? "Войти без пароля" : userName}</h2></div>
+          </div>
+          <button onClick={onClose} aria-label="Закрыть">×</button>
+        </div>
+
+        {isPreview ? (
+          <>
+            <section className="account-intro">
+              <h3>Сохраните сад между устройствами</h3>
+              <p>Пришлём одноразовую ссылку на email. Пароль создавать не нужно.</p>
+            </section>
+            <form className="auth-form" onSubmit={requestLink}>
+              <label htmlFor="account-email">Email</label>
+              <input
+                id="account-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="sadovod@example.ru"
+              />
+              <button className="primary-button" type="submit" disabled={status === "sending"}>
+                {status === "sending" ? "Отправляем…" : "Получить ссылку для входа"}
+              </button>
+            </form>
+            {message && <p className={`auth-message ${status}`}>{message}</p>}
+            <p className="auth-privacy">Точные координаты не сохраняются: погодная точка округляется примерно до 5 км.</p>
+          </>
+        ) : (
+          <>
+            <section className="account-intro signed-in-card">
+              <span className="online-dot" />
+              <div><strong>Синхронизация включена</strong><p>{userEmail}</p></div>
+            </section>
+            <p className="auth-privacy">Сессия хранится в защищённой cookie и действует 30 дней. Выйти можно на этом устройстве в любой момент.</p>
+            <button className="soft-button sign-out-button" onClick={signOut}>Выйти из аккаунта</button>
+          </>
+        )}
+      </aside>
+    </div>
   );
 }
 

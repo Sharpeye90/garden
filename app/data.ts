@@ -1,4 +1,5 @@
 import type { GardenState, Plant, Planting, PlanObject } from "./types";
+import { dateKey, shiftDateKey } from "./lib/dates";
 
 export const MONTHS = [
   "Янв",
@@ -361,10 +362,18 @@ export const CATALOG: Plant[] = CATALOG_ROWS.map(
 
 export const INITIAL_STATE: GardenState = {
   revision: 1,
+  location: {
+    latitude: 56.35,
+    longitude: 35.95,
+    label: "Завидово",
+    region: "Тверская область",
+    source: "default",
+  },
   lastAnalyzedAt: "сегодня, 06:12",
   tasks: [
     {
       id: "water-greenhouse",
+      scheduledFor: dateKey(),
       title: "Полить теплицу",
       zone: "Теплица",
       time: "12 мин",
@@ -379,6 +388,7 @@ export const INITIAL_STATE: GardenState = {
     },
     {
       id: "harvest-cucumber",
+      scheduledFor: dateKey(),
       title: "Собрать огурцы",
       zone: "Теплица",
       time: "8 мин",
@@ -393,6 +403,7 @@ export const INITIAL_STATE: GardenState = {
     },
     {
       id: "check-tomatoes",
+      scheduledFor: shiftDateKey(dateKey(), 1),
       title: "Осмотреть томаты",
       zone: "Теплица",
       time: "10 мин",
@@ -407,6 +418,7 @@ export const INITIAL_STATE: GardenState = {
     },
     {
       id: "deadhead-echinacea",
+      scheduledFor: shiftDateKey(dateKey(), 3),
       title: "Убрать отцветшие соцветия",
       zone: "Розовый миксбордер",
       time: "15 мин",

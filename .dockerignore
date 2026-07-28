@@ -6,7 +6,7 @@
 dist
 node_modules
 coverage
-infra/k2/terraform/.terraform
-infra/k2/terraform/*.tfstate*
+**/.terraform
+*.tfstate*
 *.log
 .DS_Store
