@@ -140,3 +140,18 @@ test("plant placement connects catalog, plan, care tasks and journal", async () 
   assert.match(plantings, /observe\.soil-moisture\.vegetable\.v1/);
   assert.match(storage, /normalizeState/);
 });
+
+test("the whole plan can be cleared and restored from history", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("app/components/GardenApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(app, /const clearPlan/);
+  assert.match(app, /Очистить весь план\?/);
+  assert.match(app, /planObjects: \[\]/);
+  assert.match(app, /plantings: \[\]/);
+  assert.match(app, /updateState\(\(current\) => \(\{ \.\.\.current, \.\.\.previous \}\)\)/);
+  assert.match(app, />Очистить план<\/button>/);
+  assert.match(css, /\.clear-plan-button/);
+});

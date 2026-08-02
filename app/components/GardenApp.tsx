@@ -109,6 +109,11 @@ type LocationSearchResult = {
   longitude: number;
 };
 
+type PlanHistoryEntry = Pick<
+  GardenState,
+  "planObjects" | "plantings" | "plants" | "tasks"
+>;
+
 const DEFAULT_WEATHER: WeatherState = {
   current: WEATHER_FALLBACK,
   daily: [],
@@ -193,7 +198,7 @@ export function GardenApp({
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [selectedPlantingId, setSelectedPlantingId] = useState<string | null>(null);
   const [pendingPlantId, setPendingPlantId] = useState<string | null>(null);
-  const [planHistory, setPlanHistory] = useState<PlanObject[][]>([]);
+  const [planHistory, setPlanHistory] = useState<PlanHistoryEntry[]>([]);
   const [zoom, setZoom] = useState(1);
   const [season, setSeason] = useState<"all" | "permanent" | "2026" | "2027">(
     "all",
@@ -204,6 +209,7 @@ export function GardenApp({
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
+  const [clearPlanConfirmOpen, setClearPlanConfirmOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherState>(DEFAULT_WEATHER);
   const [weatherStatus, setWeatherStatus] = useState<"loading" | "ready" | "error">(
@@ -471,7 +477,15 @@ export function GardenApp({
   };
 
   const pushPlanHistory = () => {
-    setPlanHistory((history) => [...history.slice(-14), state.planObjects]);
+    setPlanHistory((history) => [
+      ...history.slice(-14),
+      {
+        planObjects: state.planObjects,
+        plantings: state.plantings,
+        plants: state.plants,
+        tasks: state.tasks,
+      },
+    ]);
   };
 
   const changePlanObject = (changed: PlanObject) => {
@@ -529,7 +543,45 @@ export function GardenApp({
     const previous = planHistory.at(-1);
     if (!previous) return;
     setPlanHistory((history) => history.slice(0, -1));
-    updateState((current) => ({ ...current, planObjects: previous }));
+    updateState((current) => ({ ...current, ...previous }));
+    setSelectedObjectId(null);
+    setSelectedPlantingId(null);
+    setToast("Последнее изменение плана отменено");
+  };
+
+  const clearPlan = () => {
+    if (state.planObjects.length === 0 && state.plantings.length === 0) {
+      setToast("План уже пуст");
+      return;
+    }
+    pushPlanHistory();
+    updateState((current) => {
+      const plantingIds = new Set(current.plantings.map((planting) => planting.id));
+      const plantedPlantIds = new Set(
+        current.plantings.map((planting) => planting.plantId),
+      );
+      return {
+        ...current,
+        planObjects: [],
+        plantings: [],
+        plants: current.plants.map((plant) =>
+          plantedPlantIds.has(plant.id)
+            ? { ...plant, zone: "Нужно разместить" }
+            : plant,
+        ),
+        tasks: current.tasks.filter(
+          (task) =>
+            task.status === "done" ||
+            !task.plantingId ||
+            !plantingIds.has(task.plantingId),
+        ),
+      };
+    });
+    setSelectedObjectId(null);
+    setSelectedPlantingId(null);
+    setPendingPlantId(null);
+    setSeason("all");
+    setToast("План очищен — растения остались в списке");
   };
 
   const selectedObject = state.planObjects.find(
@@ -949,9 +1001,11 @@ export function GardenApp({
               season={season}
               zoom={zoom}
               canUndo={planHistory.length > 0}
+              canClear={state.planObjects.length > 0 || state.plantings.length > 0}
               onSeason={setSeason}
               onZoom={setZoom}
               onUndo={undoPlan}
+              onClear={() => setClearPlanConfirmOpen(true)}
               onSelect={(id) => {
                 setSelectedObjectId(id);
                 if (id) setSelectedPlantingId(null);
@@ -1086,6 +1140,18 @@ export function GardenApp({
             setToast(`${selected.name}: погодная точка сохранена`);
           }}
           onClose={() => setLocationOpen(false)}
+        />
+      )}
+
+      {clearPlanConfirmOpen && (
+        <ClearPlanDialog
+          objectCount={state.planObjects.length}
+          plantingCount={state.plantings.length}
+          onCancel={() => setClearPlanConfirmOpen(false)}
+          onConfirm={() => {
+            setClearPlanConfirmOpen(false);
+            clearPlan();
+          }}
         />
       )}
 
@@ -1315,9 +1381,11 @@ function PlanView({
   season,
   zoom,
   canUndo,
+  canClear,
   onSeason,
   onZoom,
   onUndo,
+  onClear,
   onSelect,
   onSelectPlanting,
   onChange,
@@ -1341,9 +1409,11 @@ function PlanView({
   season: "all" | "permanent" | "2026" | "2027";
   zoom: number;
   canUndo: boolean;
+  canClear: boolean;
   onSeason: (season: "all" | "permanent" | "2026" | "2027") => void;
   onZoom: (zoom: number) => void;
   onUndo: () => void;
+  onClear: () => void;
   onSelect: (id: string | null) => void;
   onSelectPlanting: (id: string | null) => void;
   onChange: (object: PlanObject) => void;
@@ -1372,6 +1442,7 @@ function PlanView({
         <div className="plan-controls">
           <button className="icon-button" disabled={!canUndo} onClick={onUndo} aria-label="Отменить">↶</button>
           <div className="zoom-control"><button onClick={() => onZoom(Math.max(0.7, zoom - 0.1))}>−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => onZoom(Math.min(1.4, zoom + 0.1))}>+</button></div>
+          <button className="clear-plan-button" disabled={!canClear} onClick={onClear}>Очистить план</button>
         </div>
       </section>
 
@@ -1613,6 +1684,49 @@ function JournalView({ entries, draft, onDraft, onSubmit }: { entries: GardenSta
         </section>
       </div>
     </>
+  );
+}
+
+function ClearPlanDialog({
+  objectCount,
+  plantingCount,
+  onCancel,
+  onConfirm,
+}: {
+  objectCount: number;
+  plantingCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="drawer-backdrop confirmation-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        className="confirmation-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clear-plan-title"
+      >
+        <span className="confirmation-symbol">×</span>
+        <p className="eyebrow">Очистка участка</p>
+        <h2 id="clear-plan-title">Очистить весь план?</h2>
+        <p>
+          С плана исчезнут {russianCount(objectCount, "объект", "объекта", "объектов")} и {russianCount(plantingCount, "посадка", "посадки", "посадок")}.
+          Растения останутся в списке, журнал и выполненные дела сохранятся.
+        </p>
+        <div className="confirmation-note">
+          После очистки план можно сразу восстановить кнопкой отмены ↶.
+        </div>
+        <div className="confirmation-actions">
+          <button className="soft-button" type="button" onClick={onCancel}>Отмена</button>
+          <button className="danger-button" type="button" onClick={onConfirm}>Очистить план</button>
+        </div>
+      </section>
+    </div>
   );
 }
 

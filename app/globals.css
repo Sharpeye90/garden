@@ -663,6 +663,9 @@ h3 {
 .plan-controls { gap: 9px; }
 .icon-button { width: 40px; height: 40px; border: 1px solid var(--line-strong); background: var(--card); font-size: 20px; }
 .icon-button:disabled { opacity: 0.35; cursor: not-allowed; }
+.clear-plan-button { height: 40px; border: 1px solid #d8bbb6; border-radius: 11px; background: rgba(251, 250, 245, 0.82); padding: 0 14px; color: var(--rose); font-size: 9px; font-weight: 700; cursor: pointer; transition: 160ms ease; }
+.clear-plan-button:hover { border-color: #bd8d85; background: var(--rose-soft); }
+.clear-plan-button:disabled { opacity: 0.4; cursor: not-allowed; }
 .zoom-control { display: grid; grid-template-columns: 35px 48px 35px; height: 40px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--card); }
 .zoom-control button { border: 0; background: transparent; cursor: pointer; }
 .zoom-control span { display: grid; place-items: center; border-right: 1px solid var(--line); border-left: 1px solid var(--line); font-size: 10px; }
@@ -840,6 +843,16 @@ h3 {
 .drawer-head .spark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: var(--green); color: #f1e6bd; }
 .drawer-head h2 { font-size: 25px; }
 .drawer-head button { border: 0; background: transparent; color: var(--muted); font-size: 26px; cursor: pointer; }
+.confirmation-backdrop { align-items: center; justify-content: center; padding: 20px; }
+.confirmation-dialog { width: min(430px, 100%); border: 1px solid #d8bbb6; border-radius: 20px; background: var(--paper); padding: 28px; box-shadow: 0 24px 80px rgba(38, 42, 36, 0.24); animation: confirm-in 180ms ease both; }
+@keyframes confirm-in { from { transform: translateY(8px) scale(0.98); opacity: 0; } }
+.confirmation-symbol { display: grid; width: 44px; height: 44px; margin-bottom: 20px; place-items: center; border-radius: 50%; background: var(--rose-soft); color: var(--rose); font-family: var(--serif); font-size: 24px; }
+.confirmation-dialog h2 { margin: 6px 0 12px; font-size: 29px; }
+.confirmation-dialog > p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.confirmation-note { margin-top: 18px; border-radius: 11px; background: var(--green-soft); padding: 12px 14px; color: var(--green); font-size: 9px; line-height: 1.5; }
+.confirmation-actions { display: grid; grid-template-columns: 1fr 1.3fr; gap: 9px; margin-top: 22px; }
+.danger-button { min-height: 40px; border: 1px solid #a96059; border-radius: 10px; background: #9a5751; padding: 0 16px; color: white; font-size: 10px; font-weight: 700; cursor: pointer; }
+.danger-button:hover { background: #844842; }
 .location-drawer { width: min(520px, 100vw); }
 .location-panel-symbol { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--green); color: #f1e6bd; font-family: var(--serif); font-size: 22px; }
 .current-location-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 26px; border: 1px solid var(--line); border-radius: 15px; background: rgba(251, 250, 245, 0.74); padding: 18px; }
@@ -1013,6 +1026,8 @@ h3 {
   .journal-feed article { grid-template-columns: 62px 1fr; }
   .journal-entry { margin-left: 14px; padding: 16px; }
   .assistant-drawer { padding: 20px 16px; }
+  .confirmation-dialog { padding: 23px 20px; }
+  .confirmation-actions { grid-template-columns: 1fr; }
   .current-location-card { align-items: flex-start; flex-direction: column; }
   .location-search-form > div { grid-template-columns: 1fr; }
   .location-search-form .primary-button { width: 100%; }
