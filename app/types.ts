@@ -92,7 +92,7 @@ export type GardenLocation = {
   longitude: number;
   label: string;
   region: string;
-  source: "default" | "device";
+  source: "default" | "device" | "search";
   updatedAt?: string;
 };
 

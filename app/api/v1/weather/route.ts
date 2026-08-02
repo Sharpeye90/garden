@@ -27,8 +27,8 @@ export async function GET(request: Request) {
     !Number.isFinite(latitude) ||
     !Number.isFinite(longitude) ||
     latitude < 53 ||
-    latitude > 59 ||
-    longitude < 32 ||
+    latitude > 59.5 ||
+    longitude < 30 ||
     longitude > 41
   ) {
     return NextResponse.json({ error: "unsupported_pilot_region" }, { status: 422 });

@@ -100,6 +100,15 @@ type WeatherState = {
   attribution: string | null;
 };
 
+type LocationSearchResult = {
+  id: string;
+  name: string;
+  region: string;
+  area: string | null;
+  latitude: number;
+  longitude: number;
+};
+
 const DEFAULT_WEATHER: WeatherState = {
   current: WEATHER_FALLBACK,
   daily: [],
@@ -114,7 +123,7 @@ function regionForCoordinates(latitude: number, longitude: number): string {
   if (latitude >= 54.8 && latitude < 56.15 && longitude >= 35 && longitude <= 41) {
     return "Московская область";
   }
-  if (latitude >= 55.6 && latitude <= 59 && longitude >= 32 && longitude <= 39.6) {
+  if (latitude >= 55.6 && latitude <= 59.2 && longitude >= 30.5 && longitude <= 39.6) {
     return "Тверская область";
   }
   return "Вне региона пилота";
@@ -194,6 +203,7 @@ export function GardenApp({
   const [journalDraft, setJournalDraft] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherState>(DEFAULT_WEATHER);
   const [weatherStatus, setWeatherStatus] = useState<"loading" | "ready" | "error">(
@@ -392,6 +402,7 @@ export function GardenApp({
         setWeatherStatus("loading");
         updateState((current) => ({ ...current, location }));
         setLocationStatus("idle");
+        setLocationOpen(false);
         setToast(
           region === "Вне региона пилота"
             ? "Точка сохранена, но погодные правила пилота здесь пока не работают"
@@ -848,8 +859,7 @@ export function GardenApp({
         <header className="topbar">
           <button
             className="location-block"
-            onClick={requestLocation}
-            disabled={locationStatus === "requesting"}
+            onClick={() => setLocationOpen(true)}
             title={`${state.location.latitude.toFixed(2)}, ${state.location.longitude.toFixed(2)}`}
           >
             <span className="location-dot" />
@@ -857,7 +867,7 @@ export function GardenApp({
               <strong>
                 {locationStatus === "requesting" ? "Определяем место…" : state.location.label}
               </strong>
-              <small>{state.location.region} · точка округлена · изменить</small>
+              <small>{state.location.region} · выбрать место</small>
             </span>
           </button>
           <div className="topbar-actions">
@@ -1053,6 +1063,29 @@ export function GardenApp({
           isPreview={isPreview}
           emailDeliveryEnabled={emailDeliveryEnabled}
           onClose={() => setAccountOpen(false)}
+        />
+      )}
+
+      {locationOpen && (
+        <LocationPanel
+          currentLocation={state.location}
+          locationStatus={locationStatus}
+          onDetect={requestLocation}
+          onSelect={(selected) => {
+            const location: GardenLocation = {
+              latitude: roundedWeatherCoordinate(selected.latitude),
+              longitude: roundedWeatherCoordinate(selected.longitude),
+              label: selected.name,
+              region: selected.region,
+              source: "search",
+              updatedAt: new Date().toISOString(),
+            };
+            setWeatherStatus("loading");
+            updateState((current) => ({ ...current, location }));
+            setLocationOpen(false);
+            setToast(`${selected.name}: погодная точка сохранена`);
+          }}
+          onClose={() => setLocationOpen(false)}
         />
       )}
 
@@ -1580,6 +1613,180 @@ function JournalView({ entries, draft, onDraft, onSubmit }: { entries: GardenSta
         </section>
       </div>
     </>
+  );
+}
+
+function LocationPanel({
+  currentLocation,
+  locationStatus,
+  onDetect,
+  onSelect,
+  onClose,
+}: {
+  currentLocation: GardenLocation;
+  locationStatus: "idle" | "requesting" | "denied" | "unsupported";
+  onDetect: () => void;
+  onSelect: (location: LocationSearchResult) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<LocationSearchResult[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchStatus, setSearchStatus] = useState<
+    "idle" | "searching" | "ready" | "empty" | "error"
+  >("idle");
+  const selected = results.find((result) => result.id === selectedId) ?? null;
+
+  const searchLocations = async (event: FormEvent) => {
+    event.preventDefault();
+    const value = query.trim();
+    if (value.length < 2) {
+      setResults([]);
+      setSelectedId(null);
+      setSearchStatus("empty");
+      return;
+    }
+
+    setSearchStatus("searching");
+    setResults([]);
+    setSelectedId(null);
+    try {
+      const response = await fetch(
+        `/api/v1/locations?q=${encodeURIComponent(value)}`,
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        results?: LocationSearchResult[];
+      };
+      if (!response.ok) {
+        setResults([]);
+        setSearchStatus("error");
+        return;
+      }
+      const nextResults = payload.results ?? [];
+      setResults(nextResults);
+      setSelectedId(nextResults[0]?.id ?? null);
+      setSearchStatus(nextResults.length > 0 ? "ready" : "empty");
+    } catch {
+      setResults([]);
+      setSearchStatus("error");
+    }
+  };
+
+  return (
+    <div
+      className="drawer-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside
+        className="assistant-drawer location-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Местоположение участка"
+      >
+        <div className="drawer-head">
+          <div>
+            <span className="location-panel-symbol">⌖</span>
+            <div><p className="eyebrow">Погодная точка</p><h2>Где находится участок?</h2></div>
+          </div>
+          <button onClick={onClose} aria-label="Закрыть">×</button>
+        </div>
+
+        <section className="current-location-card">
+          <div>
+            <p className="eyebrow">Сейчас выбрано</p>
+            <h3>{currentLocation.label}</h3>
+            <p>{currentLocation.region}</p>
+          </div>
+          <span>
+            {currentLocation.latitude.toFixed(2)}, {currentLocation.longitude.toFixed(2)}
+          </span>
+        </section>
+
+        <button
+          className="location-detect-button"
+          type="button"
+          onClick={onDetect}
+          disabled={locationStatus === "requesting"}
+        >
+          <span>◎</span>
+          <span>
+            <strong>{locationStatus === "requesting" ? "Определяем…" : "Определить по устройству"}</strong>
+            <small>Подойдёт, если вы сейчас на участке</small>
+          </span>
+        </button>
+        {locationStatus === "denied" && (
+          <p className="location-inline-error">Браузер не разрешил доступ к геопозиции. Найдите участок вручную ниже.</p>
+        )}
+        {locationStatus === "unsupported" && (
+          <p className="location-inline-error">Это устройство не умеет определять геопозицию. Используйте ручной поиск.</p>
+        )}
+
+        <div className="location-divider"><span>или найдите место</span></div>
+
+        <form className="location-search-form" onSubmit={searchLocations}>
+          <label htmlFor="garden-location-query">Город, посёлок или деревня</label>
+          <div>
+            <input
+              id="garden-location-query"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Например, Завидово или Клин"
+              autoComplete="off"
+            />
+            <button className="primary-button" type="submit" disabled={searchStatus === "searching"}>
+              {searchStatus === "searching" ? "Ищем…" : "Найти"}
+            </button>
+          </div>
+          <small>В пилоте доступны Московская и Тверская области.</small>
+        </form>
+
+        {searchStatus === "empty" && (
+          <p className="location-search-message">Ничего не нашли. Уточните название или добавьте название области.</p>
+        )}
+        {searchStatus === "error" && (
+          <p className="location-search-message error">Поиск сейчас недоступен. Можно определить место по устройству.</p>
+        )}
+
+        {results.length > 0 && (
+          <div className="location-results" role="listbox" aria-label="Найденные места">
+            {results.map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                className={selectedId === result.id ? "selected" : ""}
+                onClick={() => setSelectedId(result.id)}
+                role="option"
+                aria-selected={selectedId === result.id}
+              >
+                <span className="location-result-marker" />
+                <span>
+                  <strong>{result.name}</strong>
+                  <small>{[result.area, result.region].filter(Boolean).join(" · ")}</small>
+                </span>
+                <em>{result.latitude.toFixed(2)}, {result.longitude.toFixed(2)}</em>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selected && (
+          <button
+            className="primary-button location-save-button"
+            type="button"
+            onClick={() => onSelect(selected)}
+          >
+            Выбрать {selected.name}
+          </button>
+        )}
+
+        <p className="location-privacy">
+          Сохраняется округлённая точка с точностью примерно до 5 км — без адреса участка. Для ручного поиска название места передаётся GeoNames через Open-Meteo.
+        </p>
+      </aside>
+    </div>
   );
 }
 

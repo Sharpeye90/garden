@@ -37,9 +37,10 @@ test("product shell replaces every starter marker", async () => {
 });
 
 test("server contracts cover health, weather, state and assistant queue", async () => {
-  const [health, weather, state, assistant, requestLink, verify, serverAuth] = await Promise.all([
+  const [health, weather, locations, state, assistant, requestLink, verify, serverAuth] = await Promise.all([
     readFile(new URL("app/api/v1/health/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/weather/route.ts", root), "utf8"),
+    readFile(new URL("app/api/v1/locations/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/state/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/assistant/questions/route.ts", root), "utf8"),
     readFile(new URL("app/api/v1/auth/request-link/route.ts", root), "utf8"),
@@ -51,6 +52,11 @@ test("server contracts cover health, weather, state and assistant queue", async 
   assert.match(health, /database/);
   assert.match(weather, /open-meteo\.com/);
   assert.match(weather, /forecast_days: "16"/);
+  assert.match(weather, /longitude < 30/);
+  assert.match(locations, /geocoding-api\.open-meteo\.com/);
+  assert.match(locations, /countryCode: "RU"/);
+  assert.match(locations, /Московская область/);
+  assert.match(locations, /Тверская область/);
   assert.match(state, /revision_conflict/);
   assert.match(state, /idempotency_keys/);
   assert.match(state, /FOR UPDATE/);
@@ -73,9 +79,11 @@ test("calendar and geolocation use real dates and rounded weather points", async
   ]);
 
   assert.match(types, /scheduledFor: string/);
-  assert.match(types, /source: "default" \| "device"/);
+  assert.match(types, /source: "default" \| "device" \| "search"/);
   assert.match(data, /scheduledFor: dateKey\(\)/);
   assert.match(app, /navigator\.geolocation\.getCurrentPosition/);
+  assert.match(app, /function LocationPanel/);
+  assert.match(app, /\/api\/v1\/locations\?q=/);
   assert.match(app, /roundedWeatherCoordinate/);
   assert.match(app, /date-switcher/);
   assert.match(dates, /Europe\/Moscow/);
