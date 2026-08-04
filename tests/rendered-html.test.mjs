@@ -53,10 +53,12 @@ test("server contracts cover health, weather, state and assistant queue", async 
   assert.match(weather, /open-meteo\.com/);
   assert.match(weather, /forecast_days: "16"/);
   assert.match(weather, /longitude < 30/);
+  assert.match(weather, /longitude > 43/);
   assert.match(locations, /geocoding-api\.open-meteo\.com/);
   assert.match(locations, /countryCode: "RU"/);
   assert.match(locations, /Московская область/);
   assert.match(locations, /Тверская область/);
+  assert.match(locations, /Владимирская область/);
   assert.match(state, /revision_conflict/);
   assert.match(state, /idempotency_keys/);
   assert.match(state, /FOR UPDATE/);
@@ -82,6 +84,7 @@ test("calendar and geolocation use real dates and rounded weather points", async
   assert.match(types, /source: "default" \| "device" \| "search"/);
   assert.match(data, /scheduledFor: dateKey\(\)/);
   assert.match(app, /navigator\.geolocation\.getCurrentPosition/);
+  assert.match(app, /isVladimirRegion/);
   assert.match(app, /function LocationPanel/);
   assert.match(app, /\/api\/v1\/locations\?q=/);
   assert.match(app, /roundedWeatherCoordinate/);

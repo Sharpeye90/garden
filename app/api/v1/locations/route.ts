@@ -20,6 +20,7 @@ function pilotRegion(value?: string): string | null {
   const normalized = value?.toLocaleLowerCase("ru-RU") ?? "";
   if (normalized.includes("московск")) return "Московская область";
   if (normalized.includes("тверск")) return "Тверская область";
+  if (normalized.includes("владимирск")) return "Владимирская область";
   return null;
 }
 

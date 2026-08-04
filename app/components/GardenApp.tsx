@@ -125,6 +125,15 @@ function roundedWeatherCoordinate(value: number): number {
 }
 
 function regionForCoordinates(latitude: number, longitude: number): string {
+  const isVladimirRegion =
+    latitude >= 55.1 &&
+    latitude <= 56.9 &&
+    longitude >= 38.45 &&
+    longitude <= 43 &&
+    (longitude >= 40 ||
+      latitude >= 56.05 ||
+      (longitude >= 39.1 && latitude >= 55.85));
+  if (isVladimirRegion) return "Владимирская область";
   if (latitude >= 54.8 && latitude < 56.15 && longitude >= 35 && longitude <= 41) {
     return "Московская область";
   }
@@ -1074,7 +1083,11 @@ export function GardenApp({
           )}
 
           {view === "bloom" && (
-            <BloomView plants={state.plants} onObservation={recordBloomObservation} />
+            <BloomView
+              plants={state.plants}
+              region={state.location.region}
+              onObservation={recordBloomObservation}
+            />
           )}
 
           {view === "journal" && (
@@ -1637,15 +1650,17 @@ function PlantsView({
 
 function BloomView({
   plants,
+  region,
   onObservation,
 }: {
   plants: Plant[];
+  region: string;
   onObservation: (flowering: boolean) => void;
 }) {
   const bloomers = plants.filter((plant) => plant.bloomStart && plant.bloomEnd);
   return (
     <>
-      <section className="page-title-row"><div><p className="eyebrow">Сезонная картина</p><h1>Календарь цветения</h1><p className="lead">Интервалы рассчитаны для Тверской области и уточняются по вашим наблюдениям.</p></div><div className="confidence-note"><span>≈</span><p><strong>Это диапазон, не точная дата.</strong><br />Погода может сдвинуть его на 1–2 недели.</p></div></section>
+      <section className="page-title-row"><div><p className="eyebrow">Сезонная картина</p><h1>Календарь цветения</h1><p className="lead">Интервалы рассчитаны для региона «{region}» и уточняются по вашим наблюдениям.</p></div><div className="confidence-note"><span>≈</span><p><strong>Это диапазон, не точная дата.</strong><br />Погода может сдвинуть его на 1–2 недели.</p></div></section>
       <section className="bloom-board">
         <div className="bloom-summary">
           <div className="bloom-orbit"><span>7</span><small>видов</small></div>
@@ -1854,7 +1869,7 @@ function LocationPanel({
               {searchStatus === "searching" ? "Ищем…" : "Найти"}
             </button>
           </div>
-          <small>В пилоте доступны Московская и Тверская области.</small>
+          <small>В пилоте доступны Московская, Тверская и Владимирская области.</small>
         </form>
 
         {searchStatus === "empty" && (
